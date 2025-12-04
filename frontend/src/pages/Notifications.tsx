@@ -2,78 +2,62 @@ import { Bell, Check, CreditCard, FileText, Wrench, AlertCircle } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useNotifications, useMarkNotificationRead } from "@/hooks/useNotifications";
+import { Notification } from "@/types/api";
 
-const mockNotifications = [
-  {
-    id: "1",
-    type: "payment",
-    title: "Payment received",
-    message: "Marie Dupont paid €1,350 for Apt 12B",
-    time: "2 hours ago",
-    read: false,
+const typeConfig: Record<
+  Notification["type"],
+  { icon: typeof CreditCard; iconBg: string; iconColor: string; defaultTitle: string }
+> = {
+  payment_confirmation: {
     icon: CreditCard,
     iconBg: "bg-success/10",
     iconColor: "text-success",
+    defaultTitle: "Paiement reçu",
   },
-  {
-    id: "2",
-    type: "maintenance",
-    title: "New maintenance request",
-    message: "Plumbing issue reported at Apt 12B by Marie Dupont",
-    time: "5 hours ago",
-    read: false,
-    icon: Wrench,
+  payment_reminder: {
+    icon: CreditCard,
     iconBg: "bg-warning/10",
     iconColor: "text-warning",
+    defaultTitle: "Rappel de paiement",
   },
-  {
-    id: "3",
-    type: "alert",
-    title: "Payment overdue",
-    message: "Sophie Bernard's rent for House 7 is 3 days overdue",
-    time: "1 day ago",
-    read: false,
+  payment_late: {
     icon: AlertCircle,
     iconBg: "bg-destructive/10",
     iconColor: "text-destructive",
+    defaultTitle: "Paiement en retard",
   },
-  {
-    id: "4",
-    type: "lease",
-    title: "Lease expiring soon",
-    message: "Jean Moreau's lease at Apt 4C expires in 30 days",
-    time: "2 days ago",
-    read: true,
+  lease_expiring: {
     icon: FileText,
     iconBg: "bg-info/10",
     iconColor: "text-info",
+    defaultTitle: "Bail à renouveler",
   },
-  {
-    id: "5",
-    type: "payment",
-    title: "Payment received",
-    message: "Pierre Martin paid €930 for Studio 3A",
-    time: "3 days ago",
-    read: true,
-    icon: CreditCard,
-    iconBg: "bg-success/10",
-    iconColor: "text-success",
-  },
-  {
-    id: "6",
-    type: "maintenance",
-    title: "Maintenance completed",
-    message: "Dishwasher repair at Apt 4C has been resolved",
-    time: "5 days ago",
-    read: true,
+  maintenance_update: {
     icon: Wrench,
-    iconBg: "bg-success/10",
-    iconColor: "text-success",
+    iconBg: "bg-warning/10",
+    iconColor: "text-warning",
+    defaultTitle: "Maintenance",
   },
-];
+  general: {
+    icon: Bell,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    defaultTitle: "Notification",
+  },
+};
 
 export default function Notifications() {
-  const unreadCount = mockNotifications.filter(n => !n.read).length;
+  const { data: notifications = [], isLoading, isError, refetch } = useNotifications();
+  const markRead = useMarkNotificationRead();
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const handleMarkAll = () => {
+    notifications
+      .filter((n) => !n.is_read)
+      .forEach((notification) => markRead.mutate(notification.id));
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -81,59 +65,80 @@ export default function Notifications() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="page-header mb-0">
           <h1 className="page-title">Notifications</h1>
-          <p className="page-subtitle">{unreadCount} unread notifications</p>
+          <p className="page-subtitle">
+            {isLoading ? "Chargement..." : `${unreadCount} non lues`}
+          </p>
         </div>
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2" onClick={handleMarkAll} disabled={unreadCount === 0}>
           <Check size={18} />
-          Mark all as read
+          Tout marquer comme lu
         </Button>
       </div>
 
       {/* Notifications List */}
       <div className="space-y-3">
-        {mockNotifications.map((notification, index) => (
-          <Card 
-            key={notification.id}
-            className={cn(
-              "animate-slide-up hover:shadow-card-hover transition-all duration-300 cursor-pointer",
-              !notification.read && "bg-primary/5 border-primary/20"
-            )}
-            style={{ animationDelay: `${index * 0.05}s` }}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-start gap-4">
-                <div className={cn("p-2 rounded-lg", notification.iconBg)}>
-                  <notification.icon size={20} className={notification.iconColor} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h3 className={cn(
-                        "font-medium text-foreground",
-                        !notification.read && "font-semibold"
-                      )}>
-                        {notification.title}
-                      </h3>
-                      <p className="text-sm text-muted-foreground mt-0.5">
-                        {notification.message}
+        {isLoading && <p className="text-muted-foreground">Chargement des notifications...</p>}
+        {isError && (
+          <p className="text-destructive">
+            Impossible de charger les notifications.{" "}
+            <button className="underline" onClick={() => refetch()}>
+              Réessayer
+            </button>
+          </p>
+        )}
+        {!isLoading &&
+          !isError &&
+          notifications.map((notification, index) => {
+            const config = typeConfig[notification.type] ?? typeConfig.general;
+            return (
+              <Card
+                key={notification.id}
+                className={cn(
+                  "animate-slide-up hover:shadow-card-hover transition-all duration-300 cursor-pointer",
+                  !notification.is_read && "bg-primary/5 border-primary/20"
+                )}
+                style={{ animationDelay: `${index * 0.05}s` }}
+                onClick={() => markRead.mutate(notification.id)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-4">
+                    <div className={cn("p-2 rounded-lg", config.iconBg)}>
+                      <config.icon size={20} className={config.iconColor} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3
+                            className={cn(
+                              "font-medium text-foreground",
+                              !notification.is_read && "font-semibold"
+                            )}
+                          >
+                            {notification.title || config.defaultTitle}
+                          </h3>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            {notification.message}
+                          </p>
+                        </div>
+                        {!notification.is_read && (
+                          <div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-2" />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {new Date(notification.created_at).toLocaleString("fr-FR")}
                       </p>
                     </div>
-                    {!notification.read && (
-                      <div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-2" />
-                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">{notification.time}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                </CardContent>
+              </Card>
+            );
+          })}
       </div>
 
-      {mockNotifications.length === 0 && (
+      {!isLoading && !isError && notifications.length === 0 && (
         <div className="text-center py-12">
           <Bell size={48} className="text-muted-foreground/30 mx-auto mb-4" />
-          <p className="text-muted-foreground">No notifications yet</p>
+          <p className="text-muted-foreground">Aucune notification pour le moment</p>
         </div>
       )}
     </div>

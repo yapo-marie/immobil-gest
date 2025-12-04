@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Search, Mail, Phone, MoreVertical, User, Home } from "lucide-react";
+import { Plus, Search, Mail, Phone, MoreVertical, User, Home, Trash, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,16 +9,56 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useTenants } from "@/hooks/useTenants";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useTenants, useCreateTenantWithUser, useUpdateTenant, useDeleteTenant } from "@/hooks/useTenants";
 import { useLeases } from "@/hooks/useLeases";
 import { useProperties } from "@/hooks/useProperties";
 import { Tenant } from "@/types/api";
+import { useToast } from "@/hooks/use-toast";
+import { useCreateLease } from "@/hooks/useLeases";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+interface TenantFormState {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  phone?: string;
+  employment_info?: string;
+  notes?: string;
+  property_id?: number;
+  start_date?: string;
+}
 
 export default function Tenants() {
-  const { data: tenants = [], isLoading, isError, refetch } = useTenants();
-  const { data: leases = [] } = useLeases();
-  const { data: properties = [] } = useProperties();
-  const [searchTerm, setSearchTerm] = useState("");
+const { data: tenants = [], isLoading, isError, refetch } = useTenants();
+const { data: leases = [] } = useLeases();
+const { data: properties = [] } = useProperties();
+const [searchTerm, setSearchTerm] = useState("");
+const [open, setOpen] = useState(false);
+const [editTenant, setEditTenant] = useState<Tenant | null>(null);
+const [form, setForm] = useState<TenantFormState>({
+  email: "",
+  password: "",
+  first_name: "",
+  last_name: "",
+  phone: "",
+  employment_info: "",
+  notes: "",
+  property_id: 0,
+  start_date: new Date().toISOString().slice(0, 10),
+});
+  const createTenant = useCreateTenantWithUser();
+  const updateTenant = useUpdateTenant();
+  const deleteTenant = useDeleteTenant();
+  const createLease = useCreateLease();
+  const { toast } = useToast();
 
   const propertyMap = useMemo(() => {
     const map = new Map<number, { title: string; city: string }>();
@@ -48,18 +88,172 @@ export default function Tenants() {
     });
   }, [tenants, searchTerm]);
 
+const resetForm = () => {
+  setForm({
+    email: "",
+    password: "",
+    first_name: "",
+    last_name: "",
+    phone: "",
+    employment_info: "",
+    notes: "",
+    property_id: 0,
+    start_date: new Date().toISOString().slice(0, 10),
+  });
+  setEditTenant(null);
+};
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editTenant) {
+        await updateTenant.mutateAsync({
+          id: editTenant.id,
+          data: {
+            employment_info: form.employment_info,
+            notes: form.notes,
+          },
+        });
+        toast({ title: "Locataire mis à jour" });
+      } else {
+        const tenantCreated = await createTenant.mutateAsync({
+          email: form.email,
+          password: form.password,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          phone: form.phone,
+          employment_info: form.employment_info,
+          notes: form.notes,
+        });
+        // Si un bien est sélectionné, on crée un bail automatiquement (date de début = choisie)
+        if (form.property_id) {
+          const property = propertyMap.get(form.property_id);
+          await createLease.mutateAsync({
+            property_id: form.property_id,
+            tenant_id: tenantCreated.id,
+            start_date: form.start_date || new Date().toISOString().slice(0, 10),
+            rent_amount: property?.rent_amount ?? 0,
+            charges: property?.charges ?? 0,
+            payment_day: 5,
+            deposit_paid: property?.deposit ?? property?.rent_amount ?? 0,
+          });
+        }
+        toast({ title: "Locataire créé" });
+      }
+      resetForm();
+      setOpen(false);
+    } catch (err: any) {
+      toast({
+        title: "Erreur",
+        description: err.response?.data?.detail || "Impossible d'enregistrer le locataire",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (tenantId: number) => {
+    try {
+      await deleteTenant.mutateAsync(tenantId);
+      toast({ title: "Locataire supprimé" });
+    } catch (err: any) {
+      toast({
+        title: "Suppression impossible",
+        description: err.response?.data?.detail || "Erreur lors de la suppression",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="page-header mb-0">
           <h1 className="page-title">Locataires</h1>
-          <p className="page-subtitle">Données récupérées depuis l&apos;API</p>
+          <p className="page-subtitle">Gérez vos locataires (API)</p>
         </div>
-        <Button className="gap-2">
-          <Plus size={18} />
-          Ajouter un locataire
-        </Button>
+        <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (!value) resetForm(); }}>
+          <DialogTrigger asChild>
+            <Button className="gap-2">
+              <Plus size={18} />
+              Ajouter un locataire
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editTenant ? "Modifier le locataire" : "Nouveau locataire"}</DialogTitle>
+            </DialogHeader>
+            <form className="space-y-3" onSubmit={handleSubmit}>
+              {!editTenant && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium">Prénom</label>
+                      <Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Nom</label>
+                      <Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Email</label>
+                    <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Téléphone</label>
+                    <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Mot de passe</label>
+                    <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="text-sm font-medium">Situation pro</label>
+                <Input value={form.employment_info} onChange={(e) => setForm({ ...form, employment_info: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Notes</label>
+                <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Attribuer un bien (optionnel)</label>
+                  <Select
+                    value={String(form.property_id ?? 0)}
+                    onValueChange={(value) => setForm({ ...form, property_id: Number(value) })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choisir un bien" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Ne pas attribuer</SelectItem>
+                      {properties.map((property) => (
+                        <SelectItem key={property.id} value={String(property.id)}>
+                          {property.title} — {property.city}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Date de début du bail</label>
+                  <Input
+                    type="date"
+                    value={form.start_date}
+                    onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+                    disabled={!form.property_id}
+                  />
+                </div>
+              </div>
+              <Button type="submit" disabled={createTenant.isPending || updateTenant.isPending} className="w-full">
+                {createTenant.isPending || updateTenant.isPending ? "Enregistrement..." : "Enregistrer"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Search */}
@@ -97,7 +291,7 @@ export default function Tenants() {
             <Card
               key={tenant.id}
               className="animate-slide-up hover:shadow-card-hover transition-all duration-300"
-              style={{ animationDelay: `${index * 0.1}s` }}
+              style={{ animationDelay: `${index * 0.05}s` }}
             >
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -121,10 +315,29 @@ export default function Tenants() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>Voir</DropdownMenuItem>
-                      <DropdownMenuItem>Éditer</DropdownMenuItem>
-                      <DropdownMenuItem>Envoyer un message</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive">Supprimer</DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setEditTenant(tenant);
+                          setForm({
+                            email: tenant.user?.email ?? "",
+                            password: "",
+                            first_name: tenant.user?.first_name ?? "",
+                            last_name: tenant.user?.last_name ?? "",
+                            phone: tenant.user?.phone ?? "",
+                            employment_info: tenant.employment_info ?? "",
+                            notes: tenant.notes ?? "",
+                          });
+                          setOpen(true);
+                        }}
+                      >
+                        <Pencil size={14} className="mr-2" /> Éditer
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => handleDelete(tenant.id)}
+                      >
+                        <Trash size={14} className="mr-2" /> Supprimer
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

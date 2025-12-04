@@ -74,6 +74,40 @@ def get_lease(
         raise HTTPException(status_code=404, detail="Lease not found")
     return lease
 
+@router.put("/{lease_id}", response_model=LeaseResponse)
+def update_lease(
+    lease_id: int,
+    lease_update: LeaseUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_landlord),
+):
+    lease = db.query(Lease).join(Property).filter(
+        Lease.id == lease_id,
+        Property.owner_id == current_user.id
+    ).first()
+
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    # Optionally move lease to another property (if still owned)
+    if lease_update.property_id and lease_update.property_id != lease.property_id:
+        new_property = db.query(Property).filter(Property.id == lease_update.property_id).first()
+        if not new_property or new_property.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized for new property")
+        lease.property_id = lease_update.property_id
+
+    # Optionally change tenant
+    if lease_update.tenant_id:
+        lease.tenant_id = lease_update.tenant_id
+
+    # Update simple fields
+    for key, value in lease_update.model_dump(exclude_unset=True, exclude={"property_id", "tenant_id"}).items():
+        setattr(lease, key, value)
+
+    db.commit()
+    db.refresh(lease)
+    return lease
+
 @router.post("/{lease_id}/terminate", response_model=LeaseResponse)
 def terminate_lease(
     lease_id: int, 
@@ -98,3 +132,25 @@ def terminate_lease(
     db.commit()
     db.refresh(lease)
     return lease
+
+@router.delete("/{lease_id}")
+def delete_lease(
+    lease_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_landlord),
+):
+    lease = db.query(Lease).join(Property).filter(
+        Lease.id == lease_id,
+        Property.owner_id == current_user.id
+    ).first()
+
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    # Free property if active
+    if lease.property.status == PropertyStatus.OCCUPIED:
+        lease.property.status = PropertyStatus.AVAILABLE
+
+    db.delete(lease)
+    db.commit()
+    return {"message": "Lease deleted"}

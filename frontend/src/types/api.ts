@@ -66,3 +66,57 @@ export interface Lease {
   created_at: string;
   actual_end_date?: string | null;
 }
+
+export type PaymentStatus = "pending" | "paid" | "late" | "partial";
+export type PaymentMethod = "stripe" | "paypal" | "bank_transfer" | "cash" | "check" | null;
+
+export interface Payment {
+  id: number;
+  lease_id: number;
+  amount: number;
+  due_date: string;
+  payment_date?: string | null;
+  status: PaymentStatus;
+  payment_method?: PaymentMethod;
+  transaction_reference?: string | null;
+  receipt_url?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export type MaintenanceStatus = "pending" | "in_progress" | "resolved" | "rejected";
+export type MaintenancePriority = "low" | "medium" | "high" | "urgent";
+export type MaintenanceType = "plumbing" | "electrical" | "heating" | "appliance" | "other";
+
+export interface MaintenanceRequest {
+  id: number;
+  property_id: number;
+  tenant_id: number;
+  type: MaintenanceType;
+  description: string;
+  status: MaintenanceStatus;
+  priority: MaintenancePriority;
+  images?: string[] | null;
+  resolution_notes?: string | null;
+  created_at: string;
+  resolved_at?: string | null;
+}
+
+export type NotificationType =
+  | "payment_confirmation"
+  | "payment_reminder"
+  | "payment_late"
+  | "lease_expiring"
+  | "maintenance_update"
+  | "general";
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  type: NotificationType;
+  title: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+}

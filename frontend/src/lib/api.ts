@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: '/api',
+    baseURL: '/api', // les routes enfants ajoutent un slash final pour éviter les 307/404
     headers: {
         'Content-Type': 'application/json',
     },

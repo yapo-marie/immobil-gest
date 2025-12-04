@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Search, FileText, Calendar, Euro, MoreVertical } from "lucide-react";
+import { Plus, Search, FileText, Calendar, Euro, MoreVertical, Trash, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,10 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useLeases } from "@/hooks/useLeases";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useLeases, useCreateLease, useUpdateLease, useDeleteLease } from "@/hooks/useLeases";
 import { useProperties } from "@/hooks/useProperties";
 import { useTenants } from "@/hooks/useTenants";
 import { Lease } from "@/types/api";
+import { useToast } from "@/hooks/use-toast";
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   active: { label: "Actif", className: "badge-success" },
@@ -46,9 +48,26 @@ export default function Leases() {
   const { data: leases = [], isLoading, isError, refetch } = useLeases();
   const { data: properties = [] } = useProperties();
   const { data: tenants = [] } = useTenants();
+  const createLease = useCreateLease();
+  const updateLease = useUpdateLease();
+  const deleteLease = useDeleteLease();
+  const { toast } = useToast();
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [open, setOpen] = useState(false);
+  const [editingLease, setEditingLease] = useState<Lease | null>(null);
+  const [form, setForm] = useState({
+    property_id: 0,
+    tenant_id: 0,
+    start_date: "",
+    end_date: "",
+    rent_amount: 0,
+    charges: 0,
+    deposit_paid: 0,
+    payment_day: 5,
+    special_conditions: "",
+  });
 
   const propertyMap = useMemo(() => {
     const map = new Map<number, { title: string; city: string }>();
@@ -64,6 +83,84 @@ export default function Leases() {
     });
     return map;
   }, [tenants]);
+
+  const resetForm = () => {
+    setForm({
+      property_id: 0,
+      tenant_id: 0,
+      start_date: "",
+      end_date: "",
+      rent_amount: 0,
+      charges: 0,
+      deposit_paid: 0,
+      payment_day: 5,
+      special_conditions: "",
+    });
+    setEditingLease(null);
+  };
+
+  const submitLease = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (!editingLease) {
+        if (!form.property_id || !form.tenant_id || !form.start_date) {
+          toast({ title: "Champs requis manquants", variant: "destructive" });
+          return;
+        }
+      }
+      if (editingLease) {
+        await updateLease.mutateAsync({
+          id: editingLease.id,
+          data: {
+            property_id: form.property_id || editingLease.property_id,
+            tenant_id: form.tenant_id || editingLease.tenant_id,
+            start_date: form.start_date || editingLease.start_date,
+            end_date: form.end_date || undefined,
+            rent_amount: form.rent_amount || editingLease.rent_amount,
+            charges: form.charges,
+            deposit_paid: form.deposit_paid,
+            payment_day: form.payment_day,
+            special_conditions: form.special_conditions,
+          },
+        });
+        toast({ title: "Bail mis à jour" });
+      } else {
+        await createLease.mutateAsync({
+          property_id: form.property_id,
+          tenant_id: form.tenant_id,
+          start_date: form.start_date,
+          end_date: form.end_date || undefined,
+          rent_amount: form.rent_amount,
+          charges: form.charges,
+          deposit_paid: form.deposit_paid,
+          payment_day: form.payment_day,
+          special_conditions: form.special_conditions,
+        });
+        toast({ title: "Bail créé" });
+      }
+      setOpen(false);
+      resetForm();
+    } catch (err: any) {
+      toast({
+        title: "Erreur",
+        description: err.response?.data?.detail || "Impossible d'enregistrer le bail",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteLease.mutateAsync(id);
+      toast({ title: "Bail supprimé" });
+    } catch (err: any) {
+      toast({
+        title: "Suppression impossible",
+        description: err.response?.data?.detail || "Erreur lors de la suppression",
+        variant: "destructive",
+      });
+    }
+  };
 
   const filteredLeases = useMemo(() => {
     return leases.filter((lease: Lease) => {
@@ -97,10 +194,96 @@ export default function Leases() {
           <h1 className="page-title">Baux</h1>
           <p className="page-subtitle">Contrats issus de l&apos;API</p>
         </div>
-        <Button className="gap-2">
-          <Plus size={18} />
-          Nouveau bail
-        </Button>
+        <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (!value) resetForm(); }}>
+          <DialogTrigger asChild>
+            <Button className="gap-2">
+              <Plus size={18} />
+              Nouveau bail
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingLease ? "Modifier le bail" : "Créer un bail"}</DialogTitle>
+            </DialogHeader>
+            <form className="space-y-3" onSubmit={submitLease}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Bien</label>
+                  <Select
+                    value={form.property_id ? String(form.property_id) : undefined}
+                    onValueChange={(value) => setForm({ ...form, property_id: Number(value) })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choisir un bien" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {properties.map((property) => (
+                        <SelectItem key={property.id} value={String(property.id)}>
+                          {property.title} — {property.city}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Locataire</label>
+                  <Select
+                    value={form.tenant_id ? String(form.tenant_id) : undefined}
+                    onValueChange={(value) => setForm({ ...form, tenant_id: Number(value) })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choisir un locataire" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={String(tenant.id)}>
+                          {tenant.user ? `${tenant.user.first_name} ${tenant.user.last_name}` : `Locataire #${tenant.id}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Date début</label>
+                  <Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} required />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Date fin</label>
+                  <Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Loyer</label>
+                  <Input type="number" value={form.rent_amount} onChange={(e) => setForm({ ...form, rent_amount: Number(e.target.value) })} required />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Charges</label>
+                  <Input type="number" value={form.charges} onChange={(e) => setForm({ ...form, charges: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Dépôt</label>
+                  <Input type="number" value={form.deposit_paid} onChange={(e) => setForm({ ...form, deposit_paid: Number(e.target.value) })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Jour de paiement</label>
+                  <Input type="number" value={form.payment_day} onChange={(e) => setForm({ ...form, payment_day: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Conditions spéciales</label>
+                  <Input value={form.special_conditions} onChange={(e) => setForm({ ...form, special_conditions: e.target.value })} />
+                </div>
+              </div>
+              <Button type="submit" className="w-full" disabled={createLease.isPending || updateLease.isPending}>
+                {createLease.isPending || updateLease.isPending ? "Enregistrement..." : "Enregistrer"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Stats */}
@@ -139,7 +322,7 @@ export default function Leases() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Loyer mensuel (actifs)</p>
-                <p className="text-2xl font-semibold text-foreground">€{totalMonthlyRent.toLocaleString()}</p>
+                <p className="text-2xl font-semibold text-foreground">{totalMonthlyRent.toLocaleString("fr-FR")} F CFA</p>
               </div>
             </div>
           </CardContent>
@@ -231,11 +414,11 @@ export default function Leases() {
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          <p className="font-medium">€{lease.rent_amount.toLocaleString()}</p>
-                          <p className="text-muted-foreground">+ €{(lease.charges ?? 0).toLocaleString()}</p>
+                          <p className="font-medium">{lease.rent_amount.toLocaleString("fr-FR")} F CFA</p>
+                          <p className="text-muted-foreground">+ {(lease.charges ?? 0).toLocaleString("fr-FR")} F CFA</p>
                         </div>
                       </TableCell>
-                      <TableCell>€{(lease.deposit_paid ?? 0).toLocaleString()}</TableCell>
+                      <TableCell>{(lease.deposit_paid ?? 0).toLocaleString("fr-FR")} F CFA</TableCell>
                       <TableCell>
                         <span className={badge.className}>{badge.label}</span>
                       </TableCell>
@@ -247,10 +430,31 @@ export default function Leases() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem>Voir</DropdownMenuItem>
-                            <DropdownMenuItem>Télécharger le PDF</DropdownMenuItem>
-                            <DropdownMenuItem>Renouveler</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">Résilier</DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setEditingLease(lease);
+                                setForm({
+                                  property_id: lease.property_id,
+                                  tenant_id: lease.tenant_id,
+                                  start_date: lease.start_date.slice(0, 10),
+                                  end_date: lease.end_date?.slice(0, 10) || "",
+                                  rent_amount: lease.rent_amount,
+                                  charges: lease.charges ?? 0,
+                                  deposit_paid: lease.deposit_paid ?? 0,
+                                  payment_day: lease.payment_day ?? 5,
+                                  special_conditions: lease.special_conditions ?? "",
+                                });
+                                setOpen(true);
+                              }}
+                            >
+                              <Pencil size={14} className="mr-2" /> Éditer
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(lease.id)}
+                            >
+                              <Trash size={14} className="mr-2" /> Supprimer
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date
-from app.schemas.user import UserResponse
+from app.schemas.user import UserResponse, UserCreate
 
 
 class TenantBase(BaseModel):
@@ -15,6 +15,14 @@ class TenantBase(BaseModel):
 
 class TenantCreate(TenantBase):
     user_id: int
+
+class TenantCreateWithUser(TenantBase):
+    email: str
+    password: str
+    first_name: str
+    last_name: str
+    phone: Optional[str] = None
+    role: str = "tenant"
 
 
 class TenantUpdate(TenantBase):

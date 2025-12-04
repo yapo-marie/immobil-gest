@@ -1,13 +1,15 @@
 import { Bell, Search, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useNotifications } from "@/hooks/useNotifications";
 
 interface AppHeaderProps {
   title?: string;
 }
 
 export function AppHeader({ title }: AppHeaderProps) {
-  const unreadCount = 3; // Mock data
+  const { data: notifications = [] } = useNotifications();
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
     <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-md border-b border-border">

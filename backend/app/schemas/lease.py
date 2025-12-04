@@ -21,12 +21,16 @@ class LeaseCreate(LeaseBase):
 
 
 class LeaseUpdate(BaseModel):
+    property_id: Optional[int] = None
+    tenant_id: Optional[int] = None
+    start_date: Optional[date] = None
     end_date: Optional[date] = None
     rent_amount: Optional[float] = None
     charges: Optional[float] = None
     payment_day: Optional[int] = None
     status: Optional[LeaseStatus] = None
     special_conditions: Optional[str] = None
+    deposit_paid: Optional[float] = None
 
 
 class LeaseResponse(LeaseBase):

@@ -10,8 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useProperties } from "@/hooks/useProperties";
-import { PropertyStatus } from "@/types/api";
+import { useProperties, useCreateProperty } from "@/hooks/useProperties";
+import { PropertyStatus, PropertyType } from "@/types/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { useTenants } from "@/hooks/useTenants";
+import { useCreateLease } from "@/hooks/useLeases";
 
 const statusFilterOptions: { value: PropertyStatus | "all"; label: string }[] = [
   { value: "all", label: "Tous les statuts" },
@@ -23,9 +27,31 @@ const statusFilterOptions: { value: PropertyStatus | "all"; label: string }[] = 
 
 export default function Properties() {
   const { data: properties = [], isLoading, isError, refetch } = useProperties();
+  const { data: tenants = [] } = useTenants();
+  const createProperty = useCreateProperty();
+  const createLease = useCreateLease();
+  const { toast } = useToast();
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | "all">("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    address: "",
+    city: "",
+    postal_code: "",
+    surface_area: 0,
+    rooms: 0,
+    bedrooms: 0,
+    bathrooms: 0,
+    rent_amount: 0,
+    charges: 0,
+    image_file: null as File | null,
+    property_type: "appartement" as PropertyType,
+    tenant_id: 0,
+    lease_start_date: new Date().toISOString().slice(0, 10),
+  });
 
   const filteredProperties = useMemo(() => {
     return properties.filter((property) => {
@@ -40,6 +66,26 @@ export default function Properties() {
     });
   }, [properties, searchTerm, statusFilter]);
 
+const resetForm = () => {
+  setForm({
+    title: "",
+    description: "",
+    address: "",
+    city: "",
+    postal_code: "",
+    surface_area: 0,
+    rooms: 0,
+    bedrooms: 0,
+    bathrooms: 0,
+    rent_amount: 0,
+    charges: 0,
+    image_file: null,
+    property_type: "appartement",
+    tenant_id: 0,
+    lease_start_date: new Date().toISOString().slice(0, 10),
+  });
+};
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
@@ -48,10 +94,199 @@ export default function Properties() {
           <h1 className="page-title">Biens</h1>
           <p className="page-subtitle">Liste des biens issus de l&apos;API FastAPI</p>
         </div>
-        <Button className="gap-2">
-          <Plus size={18} />
-          Ajouter un bien
-        </Button>
+        <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (!value) resetForm(); }}>
+          <DialogTrigger asChild>
+            <Button className="gap-2">
+              <Plus size={18} />
+              Ajouter un bien
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nouveau bien</DialogTitle>
+              </DialogHeader>
+              <form
+                className="space-y-3"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  try {
+                  let uploadedUrl: string | undefined;
+                  if (form.image_file) {
+                    const data = new FormData();
+                    data.append("file", form.image_file);
+                    // Point vers un endpoint d’upload (à implémenter côté backend)
+                    const res = await fetch("/api/upload", {
+                      method: "POST",
+                      body: data,
+                    });
+                    if (!res.ok) throw new Error("Upload image échoué");
+                    const json = await res.json();
+                    uploadedUrl = json.url;
+                  }
+
+                  const created = await createProperty.mutateAsync({
+                    title: form.title,
+                    description: form.description,
+                    address: form.address,
+                    city: form.city,
+                    postal_code: form.postal_code,
+                    surface_area: form.surface_area,
+                    rooms: form.rooms,
+                    bedrooms: form.bedrooms,
+                    bathrooms: form.bathrooms,
+                    rent_amount: form.rent_amount,
+                    charges: form.charges,
+                    property_type: form.property_type,
+                    images: uploadedUrl ? [uploadedUrl] : [],
+                  });
+                  // Si un locataire est choisi, on crée un bail automatiquement
+                  if (form.tenant_id) {
+                    await createLease.mutateAsync({
+                      property_id: created.id,
+                      tenant_id: form.tenant_id,
+                      start_date: form.lease_start_date,
+                      rent_amount: form.rent_amount,
+                      charges: form.charges,
+                      payment_day: 5,
+                      deposit_paid: form.rent_amount,
+                    });
+                  }
+                  toast({ title: "Bien créé" });
+                  resetForm();
+                  setOpen(false);
+                  } catch (err: any) {
+                    toast({
+                      title: "Erreur",
+                      description: err.response?.data?.detail || "Impossible de créer le bien",
+                      variant: "destructive",
+                  });
+                }
+              }}
+            >
+              <div>
+                <label className="text-sm font-medium">Titre</label>
+                <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Description courte</label>
+                <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Adresse</label>
+                <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Ville</label>
+                <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} required />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Code postal</label>
+                <Input value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Loyer</label>
+                  <Input
+                    type="number"
+                    value={form.rent_amount}
+                    onChange={(e) => setForm({ ...form, rent_amount: Number(e.target.value) })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Charges</label>
+                  <Input
+                    type="number"
+                    value={form.charges}
+                    onChange={(e) => setForm({ ...form, charges: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Type</label>
+                  <Select
+                    value={form.property_type}
+                    onValueChange={(value) => setForm({ ...form, property_type: value as PropertyType })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="appartement">Appartement</SelectItem>
+                      <SelectItem value="villa">Maison/Villa</SelectItem>
+                      <SelectItem value="studio">Studio</SelectItem>
+                      <SelectItem value="commercial">Commercial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Surface (m²)</label>
+                  <Input
+                    type="number"
+                    value={form.surface_area}
+                    onChange={(e) => setForm({ ...form, surface_area: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Pièces</label>
+                  <Input type="number" value={form.rooms} onChange={(e) => setForm({ ...form, rooms: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Chambres</label>
+                  <Input type="number" value={form.bedrooms} onChange={(e) => setForm({ ...form, bedrooms: Number(e.target.value) })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Salles de bain</label>
+                  <Input type="number" value={form.bathrooms} onChange={(e) => setForm({ ...form, bathrooms: Number(e.target.value) })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Image (upload)</label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setForm({ ...form, image_file: e.target.files?.[0] || null })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Attribuer à un locataire (optionnel)</label>
+                  <Select
+                    value={String(form.tenant_id)}
+                    onValueChange={(value) => setForm({ ...form, tenant_id: Number(value) })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choisir un locataire" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Ne pas attribuer</SelectItem>
+                      {tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={String(tenant.id)}>
+                          {tenant.user ? `${tenant.user.first_name} ${tenant.user.last_name}` : `Locataire #${tenant.id}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Date de début de bail</label>
+                  <Input
+                    type="date"
+                    value={form.lease_start_date}
+                    onChange={(e) => setForm({ ...form, lease_start_date: e.target.value })}
+                    disabled={!form.tenant_id}
+                  />
+                </div>
+              </div>
+              <Button type="submit" className="w-full" disabled={createProperty.isPending}>
+                {createProperty.isPending ? "Création..." : "Créer"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Filters */}

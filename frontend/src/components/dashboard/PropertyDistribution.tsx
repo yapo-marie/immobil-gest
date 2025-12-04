@@ -1,17 +1,28 @@
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const data = [
-  { name: 'Occupés', value: 18, color: 'hsl(145 65% 42%)' },
-  { name: 'Disponibles', value: 4, color: 'hsl(220 70% 45%)' },
-  { name: 'En maintenance', value: 2, color: 'hsl(38 92% 50%)' },
-];
+interface PropertyDistributionProps {
+  distribution: Record<string, number>;
+  loading?: boolean;
+}
 
-export function PropertyDistribution() {
+const colors = ["hsl(220 70% 45%)", "hsl(35 90% 55%)", "hsl(145 65% 42%)", "hsl(38 92% 50%)"];
+
+export function PropertyDistribution({ distribution, loading }: PropertyDistributionProps) {
+  const entries = Object.entries(distribution).map(([name, value], index) => ({
+    name,
+    value,
+    color: colors[index % colors.length],
+  }));
+
+  const data = entries.length > 0 ? entries : [{ name: "Aucun bien", value: 1, color: colors[0] }];
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg font-semibold">Statut des biens</CardTitle>
+        <CardTitle className="text-lg font-semibold">
+          Répartition des biens {loading && "(chargement...)"}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-64">

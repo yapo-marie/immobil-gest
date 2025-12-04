@@ -16,6 +16,7 @@ import Maintenance from "./pages/Maintenance";
 import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import Relances from "./pages/Relances";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +43,7 @@ const App = () => (
               <Route path="/leases" element={<Leases />} />
               <Route path="/payments" element={<Payments />} />
               <Route path="/maintenance" element={<Maintenance />} />
+              <Route path="/relances" element={<Relances />} />
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/settings" element={<Settings />} />
             </Route>

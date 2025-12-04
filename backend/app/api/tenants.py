@@ -5,8 +5,9 @@ from app.database import get_db
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.lease import Lease, LeaseStatus
-from app.schemas.tenant import TenantCreate, TenantUpdate, TenantDetailResponse
+from app.schemas.tenant import TenantCreate, TenantUpdate, TenantDetailResponse, TenantCreateWithUser
 from app.utils.dependencies import get_current_landlord
+from app.utils.security import get_password_hash
 
 router = APIRouter(prefix="/api/tenants", tags=["Tenants"])
 
@@ -45,6 +46,42 @@ def create_tenant(
         raise HTTPException(status_code=400, detail="Tenant profile already exists for this user")
     
     new_tenant = Tenant(**tenant.model_dump())
+    db.add(new_tenant)
+    db.commit()
+    db.refresh(new_tenant)
+    return new_tenant
+
+@router.post("/with-user", response_model=TenantDetailResponse)
+def create_tenant_with_user(
+    payload: TenantCreateWithUser,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_landlord)
+):
+    # Check email uniqueness
+    existing_user = db.query(User).filter(User.email == payload.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = User(
+        email=payload.email,
+        hashed_password=get_password_hash(payload.password),
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        phone=payload.phone,
+        role=payload.role or "tenant",
+    )
+    db.add(user)
+    db.flush()  # obtain user.id
+
+    new_tenant = Tenant(
+        user_id=user.id,
+        date_of_birth=payload.date_of_birth,
+        employment_info=payload.employment_info,
+        notes=payload.notes,
+        identity_documents=payload.identity_documents,
+        income_proof=payload.income_proof,
+        references=payload.references,
+    )
     db.add(new_tenant)
     db.commit()
     db.refresh(new_tenant)

@@ -21,6 +21,7 @@ const navItems = [
   { to: "/properties", icon: Building2, label: "Biens" },
   { to: "/tenants", icon: Users, label: "Locataires" },
   { to: "/leases", icon: FileText, label: "Baux" },
+  { to: "/relances", icon: Bell, label: "Relances" },
   { to: "/payments", icon: CreditCard, label: "Paiements" },
   { to: "/maintenance", icon: Wrench, label: "Maintenance" },
 ];
