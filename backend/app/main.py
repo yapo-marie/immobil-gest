@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, HTTPException
 import os
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+import cloudinary
+import cloudinary.uploader
 
 app = FastAPI(
     title="LOCATUS API",
@@ -58,11 +59,30 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# Configure Cloudinary (si clés disponibles)
+if settings.CLOUDINARY_CLOUD_NAME and settings.CLOUDINARY_API_KEY and settings.CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET,
+        secure=True
+    )
+
 @app.post("/api/upload")
 async def upload_image(file: UploadFile = File(...)):
-    filename = file.filename
-    path = os.path.join(UPLOAD_DIR, filename)
-    with open(path, "wb") as buffer:
-        buffer.write(await file.read())
-    # Retourne une URL servie par FastAPI
-    return {"url": f"/uploads/{filename}"}
+    # Si Cloudinary est configuré on l'utilise, sinon fallback local
+    if settings.CLOUDINARY_CLOUD_NAME and settings.CLOUDINARY_API_KEY and settings.CLOUDINARY_API_SECRET:
+        try:
+            upload_result = cloudinary.uploader.upload(
+                await file.read(),
+                folder="locatus"
+            )
+            return {"url": upload_result.get("secure_url")}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
+    else:
+        filename = file.filename
+        path = os.path.join(UPLOAD_DIR, filename)
+        with open(path, "wb") as buffer:
+            buffer.write(await file.read())
+        return {"url": f"/uploads/{filename}"}

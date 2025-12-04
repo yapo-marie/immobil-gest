@@ -114,7 +114,6 @@ const resetForm = () => {
                   if (form.image_file) {
                     const data = new FormData();
                     data.append("file", form.image_file);
-                    // Point vers un endpoint d’upload (à implémenter côté backend)
                     const res = await fetch("/api/upload", {
                       method: "POST",
                       body: data,
