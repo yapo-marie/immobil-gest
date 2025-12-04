@@ -3,10 +3,33 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Bell, Clock, AlertTriangle, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
+import api from "@/lib/api";
 
 export default function Relances() {
   const { data: reminders = [], isLoading, isError, refetch } = useReminders();
   const { toast } = useToast();
+  const [sendingId, setSendingId] = useState<number | null>(null);
+
+  const sendReminder = async (paymentId: number) => {
+    try {
+      setSendingId(paymentId);
+      const res = await api.post<{ notice_url: string }>(`/payments/${paymentId}/notice`);
+      toast({
+        title: "Relance envoyée",
+        description: "Avis généré et email envoyé.",
+      });
+      return res.data.notice_url;
+    } catch (err: any) {
+      toast({
+        title: "Erreur",
+        description: err.response?.data?.detail || "Impossible d'envoyer la relance",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingId(null);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -78,15 +101,11 @@ export default function Relances() {
                   <Button
                     variant="secondary"
                     className="gap-2"
-                    onClick={() =>
-                      toast({
-                        title: "Relance envoyée (simulation)",
-                        description: `Rappel pour le paiement #${reminder.payment_id}`,
-                      })
-                    }
+                    onClick={() => sendReminder(reminder.payment_id)}
+                    disabled={sendingId === reminder.payment_id}
                   >
                     <Mail size={16} />
-                    Envoyer un rappel
+                    {sendingId === reminder.payment_id ? "Envoi..." : "Envoyer un rappel"}
                   </Button>
                 </div>
               </CardContent>

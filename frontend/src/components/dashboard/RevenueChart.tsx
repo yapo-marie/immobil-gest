@@ -62,6 +62,7 @@ export function RevenueChart({ data, loading }: RevenueChartProps) {
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
+                domain={[60000, "auto"]}
                 tickFormatter={(value) => `${value.toLocaleString("fr-FR")} F CFA`}
               />
               <Tooltip

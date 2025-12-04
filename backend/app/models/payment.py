@@ -33,6 +33,8 @@ class Payment(Base):
     transaction_reference = Column(String)
     receipt_url = Column(String)  # PDF receipt URL
     notes = Column(String)
+    reminder_count = Column(Integer, default=0)
+    last_reminder_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

@@ -44,6 +44,13 @@ def create_lease(
         raise HTTPException(status_code=404, detail="Property not found")
     if property.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized for this property")
+    # Check no active lease on property
+    existing_active = db.query(Lease).filter(
+        Lease.property_id == lease.property_id,
+        Lease.status == LeaseStatus.ACTIVE
+    ).first()
+    if existing_active:
+        raise HTTPException(status_code=400, detail="Property already has an active lease")
         
     # Check if property is available
     if property.status != PropertyStatus.AVAILABLE:
@@ -148,8 +155,7 @@ def delete_lease(
         raise HTTPException(status_code=404, detail="Lease not found")
 
     # Free property if active
-    if lease.property.status == PropertyStatus.OCCUPIED:
-        lease.property.status = PropertyStatus.AVAILABLE
+    lease.property.status = PropertyStatus.AVAILABLE
 
     db.delete(lease)
     db.commit()

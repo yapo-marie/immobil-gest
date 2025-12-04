@@ -15,6 +15,7 @@ import { useTenants } from "@/hooks/useTenants";
 import { useLeases } from "@/hooks/useLeases";
 import { usePayments } from "@/hooks/usePayments";
 import { Lease, Payment, Property } from "@/types/api";
+import { Link } from "react-router-dom";
 
 export default function Dashboard() {
   const {
@@ -108,7 +109,7 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="animate-slide-up stagger-1">
+        <Link to="/properties" className="animate-slide-up stagger-1 block focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl">
           <StatCard
             title="Total des Biens"
             value={loading ? "—" : properties.length}
@@ -116,8 +117,8 @@ export default function Dashboard() {
             changeType="neutral"
             icon={Building2}
           />
-        </div>
-        <div className="animate-slide-up stagger-2">
+        </Link>
+        <Link to="/tenants" className="animate-slide-up stagger-2 block focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl">
           <StatCard
             title="Locataires"
             value={loading ? "—" : tenants.length}
@@ -125,8 +126,8 @@ export default function Dashboard() {
             changeType="neutral"
             icon={Users}
           />
-        </div>
-        <div className="animate-slide-up stagger-3">
+        </Link>
+        <Link to="/leases" className="animate-slide-up stagger-3 block focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl">
           <StatCard
             title="Baux actifs"
             value={loading ? "—" : activeLeases.length}
@@ -134,8 +135,8 @@ export default function Dashboard() {
             changeType="neutral"
             icon={FileText}
           />
-        </div>
-        <div className="animate-slide-up stagger-4">
+        </Link>
+        <Link to="/payments" className="animate-slide-up stagger-4 block focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl">
           <StatCard
             title="Loyer + charges"
             value={loading ? "—" : `${monthlyRevenue.toLocaleString("fr-FR")} F CFA / mois`}
@@ -143,7 +144,7 @@ export default function Dashboard() {
             changeType="positive"
             icon={TrendingUp}
           />
-        </div>
+        </Link>
       </div>
 
       {/* Alerts */}

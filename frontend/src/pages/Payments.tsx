@@ -26,7 +26,74 @@ import { Lease, Payment, Property, Tenant } from "@/types/api";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PaymentForm } from "@/components/forms/PaymentForm";
-import { useForm } from "react-hook-form";
+import api from "@/lib/api";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+
+const stripePromise = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string)
+  : null;
+const hasStripe = Boolean(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+
+function StripeCheckout({
+  clientSecret,
+  amount,
+  onSuccess,
+  submitting,
+  setSubmitting,
+}: {
+  clientSecret: string;
+  amount?: number;
+  onSuccess: () => void;
+  submitting: boolean;
+  setSubmitting: (value: boolean) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const { toast } = useToast();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setSubmitting(true);
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: "if_required",
+    });
+    if (error) {
+      toast({
+        title: "Paiement refusé",
+        description: error.message ?? "Le paiement n'a pas abouti",
+        variant: "destructive",
+      });
+      setSubmitting(false);
+      return;
+    }
+    if (paymentIntent?.status === "succeeded" || paymentIntent?.status === "processing") {
+      toast({ title: "Paiement confirmé", description: "Le reçu sera envoyé." });
+      onSuccess();
+    } else {
+      toast({ title: "Paiement en attente", description: "Nous attendons la confirmation." });
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="space-y-4" onSubmit={handleSubmit}>
+      <div className="p-3 rounded-md border border-muted">
+        <PaymentElement />
+      </div>
+      {amount !== undefined && (
+        <p className="text-sm text-muted-foreground">
+          Montant : <span className="font-semibold">{amount.toLocaleString("fr-FR")} F CFA</span>
+        </p>
+      )}
+      <Button type="submit" className="w-full" disabled={submitting}>
+        {submitting ? "Paiement..." : "Payer"}
+      </Button>
+    </form>
+  );
+}
 
 const statusConfig: Record<
   Payment["status"],
@@ -56,6 +123,11 @@ export default function Payments() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [noticeLoadingId, setNoticeLoadingId] = useState<number | null>(null);
+  const [stripeModalOpen, setStripeModalOpen] = useState(false);
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [stripePaymentId, setStripePaymentId] = useState<number | null>(null);
+  const [stripeSubmitting, setStripeSubmitting] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<Payment["status"] | "all">("all");
   const [search, setSearch] = useState("");
@@ -77,6 +149,11 @@ export default function Payments() {
     tenants.forEach((tenant) => map.set(tenant.id, tenant));
     return map;
   }, [tenants]);
+
+  const stripePayment = useMemo(
+    () => payments.find((p) => p.id === stripePaymentId) || null,
+    [payments, stripePaymentId]
+  );
 
   const totals = useMemo(() => {
     return payments.reduce(
@@ -106,6 +183,37 @@ export default function Payments() {
     });
   }, [payments, leaseMap, tenantMap, propertyMap, statusFilter, search]);
 
+  const openStripeModal = async (payment: Payment) => {
+    if (!hasStripe || !stripePromise) {
+      toast({
+        title: "Stripe non configuré",
+        description: "Ajoutez VITE_STRIPE_PUBLISHABLE_KEY pour activer le paiement par carte.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      setStripeSubmitting(false);
+      setStripePaymentId(payment.id);
+      const res = await api.post<Payment>(`/payments/${payment.id}/intent`);
+      setStripeClientSecret(res.data.client_secret ?? null);
+      setStripeModalOpen(true);
+    } catch (err: any) {
+      toast({
+        title: "Erreur Stripe",
+        description: err.response?.data?.detail || "Impossible de préparer le paiement",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleStripeSuccess = () => {
+    toast({ title: "Paiement en cours de confirmation" });
+    setStripeSubmitting(false);
+    setStripeModalOpen(false);
+    refetch();
+  };
+
   const markAsPaid = (payment: Payment) => {
     updatePayment.mutate(
       {
@@ -133,6 +241,26 @@ export default function Payments() {
     );
   };
 
+  const sendNotice = async (paymentId: number) => {
+    try {
+      setNoticeLoadingId(paymentId);
+      const res = await api.post<{ notice_url: string }>(`/payments/${paymentId}/notice`);
+      toast({
+        title: "Avis envoyé",
+        description: "Un avis d'échéance a été généré et envoyé.",
+      });
+      return res.data.notice_url;
+    } catch (err: any) {
+      toast({
+        title: "Erreur",
+        description: err.response?.data?.detail || "Impossible d'envoyer l'avis",
+        variant: "destructive",
+      });
+    } finally {
+      setNoticeLoadingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
@@ -148,16 +276,16 @@ export default function Payments() {
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button>Ajouter un paiement</Button>
+              <Button onClick={() => setSelectedPayment(null)}>Ajouter un paiement</Button>
             </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>
-                        {selectedPayment ? "Éditer le paiement" : "Nouveau paiement"}
-                      </DialogTitle>
-                    </DialogHeader>
-                    <PaymentForm
-                      defaultValues={
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  {selectedPayment ? "Éditer le paiement" : "Nouveau paiement"}
+                </DialogTitle>
+              </DialogHeader>
+              <PaymentForm
+                defaultValues={
                         selectedPayment
                           ? {
                             lease_id: selectedPayment.lease_id,
@@ -170,19 +298,19 @@ export default function Payments() {
                           }
                           : undefined
                       }
-                      loading={updatePayment.isPending}
+                      loading={createPayment.isPending || updatePayment.isPending}
                       leases={leases.map((lease) => {
                         const property = propertyMap.get(lease.property_id);
                         const tenant = tenantMap.get(lease.tenant_id);
                         return {
                           id: lease.id,
-                          label: `${tenant?.name ?? `Locataire #${lease.tenant_id}`} — ${property?.title ?? `Bien #${lease.property_id}`}`,
+                          label: `${tenant?.user ? `${tenant.user.first_name} ${tenant.user.last_name}` : `Locataire #${lease.tenant_id}`} — ${property?.title ?? `Bien #${lease.property_id}`}`,
                           amount: lease.rent_amount + (lease.charges ?? 0),
                           charges: lease.charges,
                           due_date: lease.start_date.slice(0, 10),
                         };
                       })}
-                      onSubmit={(values) => {
+                      onSubmit={(values ) => {
                         if (!selectedPayment) {
                           createPayment.mutate(
                       { ...values },
@@ -316,6 +444,7 @@ export default function Payments() {
                   <TableHead>Date de paiement</TableHead>
                   <TableHead>Méthode</TableHead>
                   <TableHead>Statut</TableHead>
+                  <TableHead>Relances</TableHead>
                   <TableHead className="w-32"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -373,6 +502,16 @@ export default function Payments() {
                         </span>
                       </TableCell>
                       <TableCell>
+                        <div className="text-sm text-muted-foreground">
+                          {(payment.reminder_count ?? 0).toString()} envois
+                          {payment.last_reminder_at && (
+                            <div className="text-xs">
+                              Dernier: {new Date(payment.last_reminder_at).toLocaleString("fr-FR")}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="space-y-1">
                         {payment.status !== "paid" && (
                           <Button
                             size="sm"
@@ -383,23 +522,54 @@ export default function Payments() {
                             Marquer payé
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setSelectedPayment(payment);
-                            setOpen(true);
-                          }}
-                        >
-                          Éditer
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setSelectedPayment(payment);
+                              setOpen(true);
+                            }}
+                          >
+                            Éditer
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-primary"
+                            onClick={() => sendNotice(payment.id)}
+                            disabled={noticeLoadingId === payment.id}
+                          >
+                            {noticeLoadingId === payment.id ? "Envoi..." : "Avis"}
+                          </Button>
+                          {hasStripe && payment.status !== "paid" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-primary"
+                              onClick={() => openStripeModal(payment)}
+                            >
+                              Payer (CB)
+                            </Button>
+                          )}
+                          {payment.receipt_url && (
+                            <a
+                              className="text-sm text-primary underline"
+                              href={payment.receipt_url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Quittance
+                            </a>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
                 })}
                 {filteredPayments.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-6">
                       Aucun paiement trouvé.
                     </TableCell>
                   </TableRow>
@@ -409,6 +579,31 @@ export default function Payments() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={stripeModalOpen} onOpenChange={setStripeModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Payer par carte</DialogTitle>
+          </DialogHeader>
+          {!hasStripe || !stripePromise ? (
+            <p className="text-destructive text-sm">
+              Stripe n'est pas configuré (VITE_STRIPE_PUBLISHABLE_KEY manquant).
+            </p>
+          ) : !stripeClientSecret ? (
+            <p className="text-muted-foreground text-sm">Préparation du paiement...</p>
+          ) : (
+            <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
+              <StripeCheckout
+                clientSecret={stripeClientSecret}
+                amount={stripePayment?.amount}
+                submitting={stripeSubmitting}
+                setSubmitting={setStripeSubmitting}
+                onSuccess={handleStripeSuccess}
+              />
+            </Elements>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

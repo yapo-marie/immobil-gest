@@ -81,6 +81,9 @@ export interface Payment {
   transaction_reference?: string | null;
   receipt_url?: string | null;
   notes?: string | null;
+   reminder_count?: number | null;
+   last_reminder_at?: string | null;
+   client_secret?: string | null;
   created_at: string;
   updated_at?: string | null;
 }

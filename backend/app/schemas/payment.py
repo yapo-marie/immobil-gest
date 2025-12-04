@@ -14,6 +14,8 @@ class PaymentBase(BaseModel):
     transaction_reference: Optional[str] = None
     receipt_url: Optional[str] = None
     notes: Optional[str] = None
+    reminder_count: Optional[int] = None
+    last_reminder_at: Optional[datetime] = None
 
 
 class PaymentCreate(PaymentBase):
@@ -21,6 +23,9 @@ class PaymentCreate(PaymentBase):
 
 
 class PaymentUpdate(BaseModel):
+    lease_id: Optional[int] = None
+    amount: Optional[float] = None
+    due_date: Optional[date] = None
     payment_date: Optional[date] = None
     status: Optional[PaymentStatus] = None
     payment_method: Optional[PaymentMethod] = None
@@ -33,6 +38,7 @@ class PaymentResponse(PaymentBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    client_secret: Optional[str] = None
 
     class Config:
         from_attributes = True

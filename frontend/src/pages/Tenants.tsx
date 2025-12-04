@@ -72,8 +72,16 @@ const [form, setForm] = useState<TenantFormState>({
   const { toast } = useToast();
 
   const propertyMap = useMemo(() => {
-    const map = new Map<number, { title: string; city: string }>();
-    properties.forEach((property) => map.set(property.id, { title: property.title, city: property.city }));
+    const map = new Map<number, { title: string; city: string; rent_amount?: number; charges?: number | null; deposit?: number | null }>();
+    properties.forEach((property) =>
+      map.set(property.id, {
+        title: property.title,
+        city: property.city,
+        rent_amount: property.rent_amount,
+        charges: property.charges ?? 0,
+        deposit: property.deposit ?? property.rent_amount,
+      })
+    );
     return map;
   }, [properties]);
 

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: Optional[str] = None
     FROM_EMAIL: str = "noreply@locatus.com"
     FROM_NAME: str = "LOCATUS"
-    
+
     # Frontend
     FRONTEND_URL: str = "http://localhost:5173"
     

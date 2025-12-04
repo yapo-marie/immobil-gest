@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -57,14 +58,16 @@ export function PaymentForm({
 
   // Pré-remplir montant/échéance si disponible
   const selectedLease = leases.find((l) => l.id === selectedLeaseId);
-  if (selectedLease) {
-    if (selectedLease.amount !== undefined) {
-      setValue("amount", selectedLease.amount, { shouldValidate: false, shouldDirty: false });
+  useEffect(() => {
+    if (selectedLease) {
+      if (selectedLease.amount !== undefined) {
+        setValue("amount", selectedLease.amount, { shouldValidate: false, shouldDirty: false });
+      }
+      if (selectedLease.due_date) {
+        setValue("due_date", selectedLease.due_date, { shouldValidate: false, shouldDirty: false });
+      }
     }
-    if (selectedLease.due_date) {
-      setValue("due_date", selectedLease.due_date, { shouldValidate: false, shouldDirty: false });
-    }
-  }
+  }, [selectedLease, setValue]);
 
   return (
     <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
