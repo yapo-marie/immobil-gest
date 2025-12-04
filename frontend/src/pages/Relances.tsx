@@ -42,12 +42,70 @@ export default function Relances() {
   const [sendingId, setSendingId] = useState<number | null>(null);
   const [subjectTemplate, setSubjectTemplate] = useState("Fin de bail - {{property_title}}");
   const [htmlTemplate, setHtmlTemplate] = useState<string>(
-    `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
-  <p>Bonjour {{tenant_name}},</p>
-  <p>Votre bail pour <strong>{{property_title}}</strong> arrive à échéance le <strong>{{end_date}}</strong>.</p>
-  <p>Merci de prendre contact pour organiser un renouvellement ou la sortie du logement.</p>
-  <p style="font-size: 12px; color: #666;">Ville : {{property_city}} — J-{{days_until_end}}</p>
-</div>`
+    `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Relance fin de bail</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #eef2f5; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    .wrapper { width: 100%; table-layout: fixed; background-color: #eef2f5; padding-bottom: 40px; }
+    .main-table { background-color: #ffffff; margin: 0 auto; width: 100%; max-width: 600px; border-spacing: 0; color: #4a4a4a; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .header { background-color: #0f172a; padding: 25px; text-align: center; }
+    .content { padding: 30px; }
+    .info-box { background-color: #f0f7ff; border: 1px solid #cce5ff; border-radius: 4px; padding: 15px; margin: 20px 0; }
+    .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #888888; border-top: 1px solid #eeeeee; }
+    @media screen and (max-width: 600px) { .content { padding: 15px; } .main-table { width: 100% !important; } }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <table class="main-table" role="presentation">
+      <tr>
+        <td class="header">
+          <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 600;">AVIS DE FIN DE BAIL</h1>
+        </td>
+      </tr>
+      <tr>
+        <td class="content">
+          <p style="font-size: 16px; margin-bottom: 18px;">Bonjour {{tenant_name}},</p>
+          <p style="line-height: 1.5;">
+            Votre bail pour <strong>{{property_title}}</strong> ({{property_city}}) arrive à échéance le <strong>{{end_date}}</strong>.
+          </p>
+          <div class="info-box">
+            <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse: collapse;">
+              <tr>
+                <td style="border-bottom: 1px solid #e6eef8; color: #666;">Début du bail</td>
+                <td align="right" style="border-bottom: 1px solid #e6eef8; font-weight: 600;">{{start_date}}</td>
+              </tr>
+              <tr>
+                <td style="border-bottom: 1px solid #e6eef8; color: #666;">Fin prévue</td>
+                <td align="right" style="border-bottom: 1px solid #e6eef8; font-weight: 600;">{{end_date}}</td>
+              </tr>
+              <tr>
+                <td style="color: #666;">Temps restant</td>
+                <td align="right" style="font-weight: 600;">{{days_until_end}} jour(s)</td>
+              </tr>
+            </table>
+          </div>
+          <p style="line-height: 1.5; color: #4a5568; font-size: 14px;">
+            Merci de nous confirmer si vous souhaitez renouveler le bail ou organiser votre sortie du logement. Nous restons disponibles pour planifier un rendez-vous d’état des lieux.
+          </p>
+          <div style="text-align: center; margin-top: 24px;">
+            <a href="#" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Contact propriétaire</a>
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td class="footer">
+          <p style="margin: 0;">Ceci est un email automatique. Merci de répondre pour toute question.</p>
+        </td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>`
   );
 
   const previewReminder = sortedReminders[0];

@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     FROM_EMAIL: str = "noreply@locatus.com"
     FROM_NAME: str = "LOCATUS"
 
+    # SMTP (alternative à SendGrid)
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True
+
     # Frontend
     FRONTEND_URL: str = "http://localhost:5173"
     
