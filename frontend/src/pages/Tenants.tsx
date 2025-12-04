@@ -85,6 +85,16 @@ const [form, setForm] = useState<TenantFormState>({
     return map;
   }, [properties]);
 
+  const occupiedPropertyIds = useMemo(() => {
+    const set = new Set<number>();
+    leases.forEach((lease) => {
+      if (lease.status === "active") {
+        set.add(lease.property_id);
+      }
+    });
+    return set;
+  }, [leases]);
+
   const activeLeaseByTenant = useMemo(() => {
     const map = new Map<number, number>();
     leases.forEach((lease) => {
@@ -126,12 +136,31 @@ const resetForm = () => {
     e.preventDefault();
     try {
       if (editTenant) {
+        if (!form.first_name || !form.last_name || !form.email) {
+          toast({
+            title: "Champs requis manquants",
+            description: "Prénom, nom et email sont obligatoires",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const payload: Record<string, string | undefined> = {
+          email: form.email,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          phone: form.phone,
+          employment_info: form.employment_info,
+          notes: form.notes,
+        };
+
+        if (form.password) {
+          payload.password = form.password;
+        }
+
         await updateTenant.mutateAsync({
           id: editTenant.id,
-          data: {
-            employment_info: form.employment_info,
-            notes: form.notes,
-          },
+          data: payload,
         });
         toast({ title: "Locataire mis à jour" });
       } else {
@@ -203,32 +232,49 @@ const resetForm = () => {
               <DialogTitle>{editTenant ? "Modifier le locataire" : "Nouveau locataire"}</DialogTitle>
             </DialogHeader>
             <form className="space-y-3" onSubmit={handleSubmit}>
-              {!editTenant && (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-sm font-medium">Prénom</label>
-                      <Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Nom</label>
-                      <Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Email</label>
-                    <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Téléphone</label>
-                    <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Mot de passe</label>
-                    <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
-                  </div>
-                </>
-              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium">Prénom</label>
+                  <Input
+                    value={form.first_name}
+                    onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Nom</label>
+                  <Input
+                    value={form.last_name}
+                    onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Email</label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Téléphone</label>
+                <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-sm font-medium">
+                  Mot de passe {editTenant ? "(laisser vide pour conserver l'actuel)" : ""}
+                </label>
+                <Input
+                  type="password"
+                  value={form.password}
+                  placeholder={editTenant ? "Laisser vide pour ne pas modifier" : undefined}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  required={!editTenant}
+                />
+              </div>
               <div>
                 <label className="text-sm font-medium">Situation pro</label>
                 <Input value={form.employment_info} onChange={(e) => setForm({ ...form, employment_info: e.target.value })} />
@@ -249,11 +295,18 @@ const resetForm = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="0">Ne pas attribuer</SelectItem>
-                      {properties.map((property) => (
-                        <SelectItem key={property.id} value={String(property.id)}>
-                          {property.title} — {property.city}
-                        </SelectItem>
-                      ))}
+                      {properties.map((property) => {
+                        const isOccupied = occupiedPropertyIds.has(property.id);
+                        return (
+                          <SelectItem
+                            key={property.id}
+                            value={String(property.id)}
+                            disabled={isOccupied}
+                          >
+                            {property.title} — {property.city} {isOccupied ? "(déjà attribué)" : ""}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -345,6 +398,8 @@ const resetForm = () => {
                             phone: tenant.user?.phone ?? "",
                             employment_info: tenant.employment_info ?? "",
                             notes: tenant.notes ?? "",
+                            property_id: 0,
+                            start_date: new Date().toISOString().slice(0, 10),
                           });
                           setOpen(true);
                         }}

@@ -1,15 +1,16 @@
 from datetime import date, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.payment import Payment, PaymentStatus
-from app.models.lease import Lease
+from app.models.lease import Lease, LeaseStatus
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.property import Property
-from app.models.user import User
 from app.utils.dependencies import get_current_landlord
+from app.utils.email import send_email
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/reminders", tags=["Reminders"])
 
@@ -58,3 +59,92 @@ def get_payment_reminders(
             }
         )
     return results
+
+
+class LeaseReminderRequest(BaseModel):
+    subject: str = Field(..., min_length=3, max_length=200)
+    html_content: str
+    plain_text_content: Optional[str] = None
+
+
+@router.get("/leases", response_model=List[dict])
+def get_lease_expiration_reminders(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_landlord),
+):
+    """Retourne les baux classés par date de fin (proche → lointain) pour préparer les relances."""
+    today = date.today()
+    query = (
+        db.query(Lease, Property, Tenant, User)
+        .join(Property, Lease.property_id == Property.id)
+        .join(Tenant, Lease.tenant_id == Tenant.id)
+        .join(User, Tenant.user_id == User.id)
+        .filter(
+            Property.owner_id == current_user.id,
+            Lease.status == LeaseStatus.ACTIVE,
+            Lease.end_date.isnot(None),
+        )
+        .order_by(Lease.end_date.asc())
+    )
+
+    reminders = []
+    for lease, prop, tenant, user in query.all():
+        days_left = (lease.end_date - today).days if lease.end_date else None
+        reminders.append(
+            {
+                "lease_id": lease.id,
+                "tenant_id": tenant.id,
+                "tenant_name": f"{user.first_name} {user.last_name}",
+                "tenant_email": user.email,
+                "property_id": prop.id,
+                "property_title": prop.title,
+                "property_city": prop.city,
+                "start_date": lease.start_date,
+                "end_date": lease.end_date,
+                "status": lease.status.value,
+                "days_until_end": days_left,
+            }
+        )
+    return reminders
+
+
+@router.post("/leases/{lease_id}/send")
+def send_lease_expiration_reminder(
+    lease_id: int,
+    payload: LeaseReminderRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_landlord),
+):
+    lease = (
+        db.query(Lease, Property, Tenant, User)
+        .join(Property, Lease.property_id == Property.id)
+        .join(Tenant, Lease.tenant_id == Tenant.id)
+        .join(User, Tenant.user_id == User.id)
+        .filter(Property.owner_id == current_user.id, Lease.id == lease_id)
+        .first()
+    )
+    if not lease:
+        raise HTTPException(status_code=404, detail="Bail introuvable")
+
+    lease_obj, prop, tenant, user = lease
+    if not user.email:
+        raise HTTPException(status_code=400, detail="Le locataire n'a pas d'email")
+
+    subject = payload.subject
+    html = payload.html_content
+    plain = payload.plain_text_content or html
+
+    success, reason = send_email(
+        user.email,
+        subject,
+        plain,
+        html_content=html,
+    )
+    if not success:
+        raise HTTPException(status_code=502, detail=reason or "Envoi SendGrid refusé (clé ou configuration)")
+
+    return {
+        "message": "Relance envoyée",
+        "sent_to": user.email,
+        "lease_id": lease_obj.id,
+    }

@@ -108,11 +108,33 @@ def update_tenant(
     db_tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not db_tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    
-    update_data = tenant_update.model_dump(exclude_unset=True)
+
+    # Handle user updates (email, names, phone, password)
+    if tenant_update.email:
+        existing_user = (
+            db.query(User)
+            .filter(User.email == tenant_update.email, User.id != db_tenant.user_id)
+            .first()
+        )
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+    for field in ["email", "first_name", "last_name", "phone"]:
+        value = getattr(tenant_update, field)
+        if value is not None:
+            setattr(db_tenant.user, field, value)
+
+    if tenant_update.password:
+        db_tenant.user.hashed_password = get_password_hash(tenant_update.password)
+
+    # Update tenant-specific fields
+    update_data = tenant_update.model_dump(
+        exclude_unset=True,
+        exclude={"email", "first_name", "last_name", "phone", "password"},
+    )
     for key, value in update_data.items():
         setattr(db_tenant, key, value)
-        
+
     db.commit()
     db.refresh(db_tenant)
     return db_tenant

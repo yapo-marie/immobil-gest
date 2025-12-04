@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import date
 from app.schemas.user import UserResponse, UserCreate
@@ -26,7 +26,11 @@ class TenantCreateWithUser(TenantBase):
 
 
 class TenantUpdate(TenantBase):
-    pass
+    email: Optional[EmailStr] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
 
 
 class TenantResponse(TenantBase):

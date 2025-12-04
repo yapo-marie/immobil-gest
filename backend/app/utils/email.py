@@ -1,21 +1,53 @@
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from sendgrid.helpers.mail import Mail, Email
 from app.config import settings
 import logging
+import re
 
 
-def send_email(to_email: str, subject: str, content: str):
-    """Envoie un email simple via SendGrid, ignore silencieusement si la clé ou le destinataire manque."""
-    if not settings.SENDGRID_API_KEY or not to_email:
-        return
+def _strip_html(html: str) -> str:
+    """Fallback plain text extraction."""
+    return re.sub("<[^>]+>", " ", html or "").strip()
+
+
+def send_email(to_email: str, subject: str, content: str, html_content: str | None = None) -> tuple[bool, str | None]:
+    """
+    Envoie un email via SendGrid (plain text + optionnel HTML), conforme au quickstart officiel.
+    Retourne (success, reason) pour surface l'erreur à l'API.
+    """
+    if not settings.SENDGRID_API_KEY:
+        msg = "SendGrid: clé API manquante"
+        logging.error(msg)
+        return False, msg
+    if not settings.FROM_EMAIL:
+        msg = "SendGrid: FROM_EMAIL non défini"
+        logging.error(msg)
+        return False, msg
+    if not to_email:
+        msg = "SendGrid: destinataire vide"
+        logging.error(msg)
+        return False, msg
+
+    sender = Email(settings.FROM_EMAIL, settings.FROM_NAME or None)
+
     try:
-        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
         message = Mail(
-            from_email=settings.FROM_EMAIL,
+            from_email=sender,
             to_emails=to_email,
             subject=subject,
-            plain_text_content=content,
+            plain_text_content=content or _strip_html(html_content or ""),
+            html_content=html_content,
         )
-        sg.send(message)
+        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+        response = sg.send(message)
+        status = getattr(response, "status_code", 500)
+        if status >= 400:
+            body = getattr(response, "body", b"")
+            msg = f"SendGrid {status}: {body}"
+            logging.error(msg)
+            return False, msg
+        return True, None
     except Exception as exc:
-        logging.error(f"SendGrid error: {exc}")
+        msg = f"SendGrid error: {exc}"
+        logging.error(msg)
+        return False, msg

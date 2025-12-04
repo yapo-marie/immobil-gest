@@ -2,6 +2,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { Tenant } from "@/types/api";
 
+type TenantUpdatePayload = Partial<Tenant> & {
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  password?: string;
+};
+
 export function useTenants(search?: string) {
   return useQuery({
     queryKey: ["tenants", search || "all"],
@@ -38,7 +46,7 @@ export function useCreateTenantWithUser() {
 export function useUpdateTenant() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<Tenant> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: TenantUpdatePayload }) => {
       const response = await api.put(`/tenants/${id}`, data);
       return response.data;
     },
