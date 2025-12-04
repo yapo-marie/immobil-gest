@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.payment import Payment, PaymentStatus
 from app.models.lease import Lease
+from app.models.tenant import Tenant
+from app.models.user import User
 from app.models.property import Property
 from app.models.user import User
 from app.utils.dependencies import get_current_landlord
@@ -23,9 +25,11 @@ def get_payment_reminders(
     cutoff = date.today() + timedelta(days=due_within_days)
 
     query = (
-        db.query(Payment, Lease, Property)
+        db.query(Payment, Lease, Property, Tenant, User)
         .join(Lease, Payment.lease_id == Lease.id)
         .join(Property, Lease.property_id == Property.id)
+        .join(Tenant, Lease.tenant_id == Tenant.id)
+        .join(User, Tenant.user_id == User.id)
         .filter(Property.owner_id == current_user.id)
     )
 
@@ -37,7 +41,7 @@ def get_payment_reminders(
     query = query.filter(Payment.due_date <= cutoff)
 
     results = []
-    for payment, lease, prop in query.order_by(Payment.due_date.asc()).all():
+    for payment, lease, prop, tenant, user in query.order_by(Payment.due_date.asc()).all():
         days_due = (payment.due_date - date.today()).days
         results.append(
             {
@@ -45,6 +49,8 @@ def get_payment_reminders(
                 "lease_id": lease.id,
                 "property_title": prop.title,
                 "property_city": prop.city,
+                "tenant_name": f"{user.first_name} {user.last_name}",
+                "tenant_email": user.email,
                 "amount": payment.amount,
                 "due_date": payment.due_date,
                 "status": payment.status.value,

@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useProperties, useCreateProperty } from "@/hooks/useProperties";
+import { useProperties, useCreateProperty, useUpdateProperty, useDeleteProperty } from "@/hooks/useProperties";
 import { PropertyStatus, PropertyType } from "@/types/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -29,12 +29,15 @@ export default function Properties() {
   const { data: properties = [], isLoading, isError, refetch } = useProperties();
   const { data: tenants = [] } = useTenants();
   const createProperty = useCreateProperty();
+  const updateProperty = useUpdateProperty();
+  const deleteProperty = useDeleteProperty();
   const createLease = useCreateLease();
   const { toast } = useToast();
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [statusFilter, setStatusFilter] = useState<PropertyStatus | "all">("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -84,6 +87,7 @@ const resetForm = () => {
     tenant_id: 0,
     lease_start_date: new Date().toISOString().slice(0, 10),
   });
+  setEditingId(null);
 };
 
   return (
@@ -103,65 +107,87 @@ const resetForm = () => {
           </DialogTrigger>
           <DialogContent>
               <DialogHeader>
-                <DialogTitle>Nouveau bien</DialogTitle>
+              <DialogTitle>{editingId ? "Modifier le bien" : "Nouveau bien"}</DialogTitle>
               </DialogHeader>
               <form
                 className="space-y-3"
                 onSubmit={async (e) => {
                   e.preventDefault();
+                  if (createProperty.isPending || updateProperty.isPending) return;
                   try {
-                  let uploadedUrl: string | undefined;
-                  if (form.image_file) {
-                    const data = new FormData();
-                    data.append("file", form.image_file);
-                    const res = await fetch("/api/upload", {
-                      method: "POST",
-                      body: data,
-                    });
-                    if (!res.ok) throw new Error("Upload image échoué");
-                    const json = await res.json();
-                    uploadedUrl = json.url;
-                  }
+                    let uploadedUrl: string | undefined;
+                    if (form.image_file) {
+                      const data = new FormData();
+                      data.append("file", form.image_file);
+                      const res = await fetch("/api/upload", {
+                        method: "POST",
+                        body: data,
+                      });
+                      if (!res.ok) throw new Error("Upload image échoué");
+                      const json = await res.json();
+                      uploadedUrl = json.url;
+                    }
 
-                  const created = await createProperty.mutateAsync({
-                    title: form.title,
-                    description: form.description,
-                    address: form.address,
-                    city: form.city,
-                    postal_code: form.postal_code,
-                    surface_area: form.surface_area,
-                    rooms: form.rooms,
-                    bedrooms: form.bedrooms,
-                    bathrooms: form.bathrooms,
-                    rent_amount: form.rent_amount,
-                    charges: form.charges,
-                    property_type: form.property_type,
-                    images: uploadedUrl ? [uploadedUrl] : [],
-                  });
-                  // Si un locataire est choisi, on crée un bail automatiquement
-                  if (form.tenant_id) {
-                    await createLease.mutateAsync({
-                      property_id: created.id,
-                      tenant_id: form.tenant_id,
-                      start_date: form.lease_start_date,
-                      rent_amount: form.rent_amount,
-                      charges: form.charges,
-                      payment_day: 5,
-                      deposit_paid: form.rent_amount,
-                    });
-                  }
-                  toast({ title: "Bien créé" });
-                  resetForm();
-                  setOpen(false);
+                    if (editingId) {
+                      await updateProperty.mutateAsync({
+                        id: editingId,
+                        data: {
+                          title: form.title,
+                          description: form.description,
+                          address: form.address,
+                          city: form.city,
+                          postal_code: form.postal_code,
+                          surface_area: form.surface_area,
+                          rooms: form.rooms,
+                          bedrooms: form.bedrooms,
+                          bathrooms: form.bathrooms,
+                          rent_amount: form.rent_amount,
+                          charges: form.charges,
+                          property_type: form.property_type,
+                          images: uploadedUrl ? [uploadedUrl] : undefined,
+                        },
+                      });
+                      toast({ title: "Bien mis à jour" });
+                    } else {
+                      const created = await createProperty.mutateAsync({
+                        title: form.title,
+                        description: form.description,
+                        address: form.address,
+                        city: form.city,
+                        postal_code: form.postal_code,
+                        surface_area: form.surface_area,
+                        rooms: form.rooms,
+                        bedrooms: form.bedrooms,
+                        bathrooms: form.bathrooms,
+                        rent_amount: form.rent_amount,
+                        charges: form.charges,
+                        property_type: form.property_type,
+                        images: uploadedUrl ? [uploadedUrl] : [],
+                      });
+                      if (form.tenant_id) {
+                        await createLease.mutateAsync({
+                          property_id: created.id,
+                          tenant_id: form.tenant_id,
+                          start_date: form.lease_start_date,
+                          rent_amount: form.rent_amount,
+                          charges: form.charges,
+                          payment_day: 5,
+                          deposit_paid: form.rent_amount,
+                        });
+                      }
+                      toast({ title: "Bien créé" });
+                    }
+                    resetForm();
+                    setOpen(false);
                   } catch (err: any) {
                     toast({
                       title: "Erreur",
-                      description: err.response?.data?.detail || "Impossible de créer le bien",
+                      description: err.response?.data?.detail || "Impossible d'enregistrer le bien",
                       variant: "destructive",
-                  });
-                }
-              }}
-            >
+                    });
+                  }
+                }}
+              >
               <div>
                 <label className="text-sm font-medium">Titre</label>
                 <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
@@ -355,8 +381,41 @@ const resetForm = () => {
               bathrooms={property.bathrooms}
               surface={property.surface_area}
               imageUrl={property.images?.[0]}
+              onEdit={() => {
+                setEditingId(property.id);
+                setForm({
+                  title: property.title,
+                  description: property.description ?? "",
+                  address: property.address,
+                  city: property.city,
+                  postal_code: property.postal_code ?? "",
+                  surface_area: property.surface_area ?? 0,
+                  rooms: property.rooms ?? 0,
+                  bedrooms: property.bedrooms ?? 0,
+                  bathrooms: property.bathrooms ?? 0,
+                  rent_amount: property.rent_amount,
+                  charges: property.charges ?? 0,
+                  image_file: null,
+                  property_type: property.property_type,
+                  tenant_id: 0,
+                  lease_start_date: new Date().toISOString().slice(0, 10),
+                });
+                setOpen(true);
+              }}
+              onDelete={async () => {
+                try {
+                  await deleteProperty.mutateAsync(property.id);
+                  toast({ title: "Bien supprimé" });
+                } catch (err: any) {
+                  toast({
+                    title: "Suppression impossible",
+                    description: err.response?.data?.detail || "Erreur lors de la suppression",
+                    variant: "destructive",
+                  });
+                }
+              }}
             />
-          </div>
+            </div>
         ))}
       </div>
 

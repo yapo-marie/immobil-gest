@@ -30,6 +30,17 @@ import { useProperties } from "@/hooks/useProperties";
 import { useTenants } from "@/hooks/useTenants";
 import { Lease } from "@/types/api";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   active: { label: "Actif", className: "badge-success" },
@@ -70,8 +81,16 @@ export default function Leases() {
   });
 
   const propertyMap = useMemo(() => {
-    const map = new Map<number, { title: string; city: string }>();
-    properties.forEach((property) => map.set(property.id, { title: property.title, city: property.city }));
+    const map = new Map<number, { title: string; city: string; status: string; rent: number; charges?: number | null }>();
+    properties.forEach((property) =>
+      map.set(property.id, {
+        title: property.title,
+        city: property.city,
+        status: property.status,
+        rent: property.rent_amount,
+        charges: property.charges,
+      })
+    );
     return map;
   }, [properties]);
 
@@ -83,6 +102,19 @@ export default function Leases() {
     });
     return map;
   }, [tenants]);
+
+  const handleSelectProperty = (propertyId: number) => {
+    setForm((prev) => {
+      const property = propertyMap.get(propertyId);
+      return {
+        ...prev,
+        property_id: propertyId,
+        rent_amount: property ? property.rent_amount : prev.rent_amount,
+        charges: property ? property.charges ?? 0 : prev.charges,
+        deposit_paid: property ? property.rent_amount : prev.deposit_paid,
+      };
+    });
+  };
 
   const resetForm = () => {
     setForm({
@@ -211,17 +243,19 @@ export default function Leases() {
                   <label className="text-sm font-medium">Bien</label>
                   <Select
                     value={form.property_id ? String(form.property_id) : undefined}
-                    onValueChange={(value) => setForm({ ...form, property_id: Number(value) })}
+                    onValueChange={(value) => handleSelectProperty(Number(value))}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Choisir un bien" />
                     </SelectTrigger>
                     <SelectContent>
-                      {properties.map((property) => (
+                      {properties
+                        .filter((property) => property.status !== "occupé") // ne montrer que les biens disponibles
+                        .map((property) => (
                         <SelectItem key={property.id} value={String(property.id)}>
                           {property.title} — {property.city}
                         </SelectItem>
-                      ))}
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -257,15 +291,28 @@ export default function Leases() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="text-sm font-medium">Loyer</label>
-                  <Input type="number" value={form.rent_amount} onChange={(e) => setForm({ ...form, rent_amount: Number(e.target.value) })} required />
+                  <Input
+                    type="number"
+                    value={form.rent_amount}
+                    onChange={(e) => setForm({ ...form, rent_amount: Number(e.target.value) })}
+                    required
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Charges</label>
-                  <Input type="number" value={form.charges} onChange={(e) => setForm({ ...form, charges: Number(e.target.value) })} />
+                  <Input
+                    type="number"
+                    value={form.charges}
+                    onChange={(e) => setForm({ ...form, charges: Number(e.target.value) })}
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Dépôt</label>
-                  <Input type="number" value={form.deposit_paid} onChange={(e) => setForm({ ...form, deposit_paid: Number(e.target.value) })} />
+                  <Input
+                    type="number"
+                    value={form.deposit_paid}
+                    onChange={(e) => setForm({ ...form, deposit_paid: Number(e.target.value) })}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -449,12 +496,33 @@ export default function Leases() {
                             >
                               <Pencil size={14} className="mr-2" /> Éditer
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDelete(lease.id)}
-                            >
-                              <Trash size={14} className="mr-2" /> Supprimer
-                            </DropdownMenuItem>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onSelect={(e) => e.preventDefault()}
+                                >
+                                  <Trash size={14} className="mr-2" /> Supprimer
+                                </DropdownMenuItem>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Supprimer ce bail ?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Cette action supprimera définitivement le bail et libérera le bien associé.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Annuler</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    onClick={() => handleDelete(lease.id)}
+                                  >
+                                    Supprimer
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

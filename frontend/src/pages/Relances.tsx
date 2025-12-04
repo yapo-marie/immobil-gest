@@ -60,6 +60,9 @@ export default function Relances() {
                 <div>
                   <h3 className="font-semibold text-foreground">{reminder.property_title}</h3>
                   <p className="text-sm text-muted-foreground">
+                    {reminder.tenant_name} — {reminder.tenant_email}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
                     Paiement #{reminder.payment_id} — Bail #{reminder.lease_id}
                   </p>
                 </div>

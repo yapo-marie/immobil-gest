@@ -6,6 +6,8 @@ export interface Reminder {
   lease_id: number;
   property_title: string;
   property_city: string;
+  tenant_name: string;
+  tenant_email: string;
   amount: number;
   due_date: string;
   status: string;

@@ -18,11 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { usePayments } from "@/hooks/usePayments";
+import { usePayments, useUpdatePayment, useCreatePayment } from "@/hooks/usePayments";
 import { useLeases } from "@/hooks/useLeases";
 import { useProperties } from "@/hooks/useProperties";
 import { useTenants } from "@/hooks/useTenants";
-import { useUpdatePayment } from "@/hooks/usePayments";
 import { Lease, Payment, Property, Tenant } from "@/types/api";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -53,6 +52,7 @@ export default function Payments() {
   const { data: properties = [] } = useProperties();
   const { data: tenants = [] } = useTenants();
   const updatePayment = useUpdatePayment();
+  const createPayment = useCreatePayment();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
@@ -150,44 +150,69 @@ export default function Payments() {
             <DialogTrigger asChild>
               <Button>Ajouter un paiement</Button>
             </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  {selectedPayment ? "Éditer le paiement" : "Nouveau paiement"}
-                </DialogTitle>
-              </DialogHeader>
-              <PaymentForm
-                defaultValues={
-                  selectedPayment
-                    ? {
-                        amount: selectedPayment.amount,
-                        due_date: selectedPayment.due_date.slice(0, 10),
-                        payment_method: selectedPayment.payment_method ?? undefined,
-                        status: selectedPayment.status,
-                        transaction_reference: selectedPayment.transaction_reference ?? undefined,
-                        notes: selectedPayment.notes ?? undefined,
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>
+                        {selectedPayment ? "Éditer le paiement" : "Nouveau paiement"}
+                      </DialogTitle>
+                    </DialogHeader>
+                    <PaymentForm
+                      defaultValues={
+                        selectedPayment
+                          ? {
+                            lease_id: selectedPayment.lease_id,
+                            amount: selectedPayment.amount,
+                            due_date: selectedPayment.due_date.slice(0, 10),
+                            payment_method: selectedPayment.payment_method ?? undefined,
+                            status: selectedPayment.status,
+                            transaction_reference: selectedPayment.transaction_reference ?? undefined,
+                            notes: selectedPayment.notes ?? undefined,
+                          }
+                          : undefined
                       }
-                    : undefined
-                }
-                loading={updatePayment.isPending}
-                onSubmit={(values) => {
-                  if (!selectedPayment) {
-                    toast({
-                      title: "Non implémenté (démo)",
-                      description: "L'API de création de paiement est à ajouter côté backend.",
-                    });
-                    return;
+                      loading={updatePayment.isPending}
+                      leases={leases.map((lease) => {
+                        const property = propertyMap.get(lease.property_id);
+                        const tenant = tenantMap.get(lease.tenant_id);
+                        return {
+                          id: lease.id,
+                          label: `${tenant?.name ?? `Locataire #${lease.tenant_id}`} — ${property?.title ?? `Bien #${lease.property_id}`}`,
+                          amount: lease.rent_amount + (lease.charges ?? 0),
+                          charges: lease.charges,
+                          due_date: lease.start_date.slice(0, 10),
+                        };
+                      })}
+                      onSubmit={(values) => {
+                        if (!selectedPayment) {
+                          createPayment.mutate(
+                      { ...values },
+                      {
+                        onSuccess: () => {
+                          toast({ title: "Paiement créé" });
+                          setOpen(false);
+                          setSelectedPayment(null);
+                        },
+                        onError: (err: any) => {
+                          toast({
+                            title: "Erreur",
+                            description: err.response?.data?.detail || "Impossible de créer le paiement",
+                            variant: "destructive",
+                          });
+                        },
+                      }
+                    );
+                  } else {
+                    updatePayment.mutate(
+                      { id: selectedPayment.id, data: values },
+                      {
+                        onSuccess: () => {
+                          toast({ title: "Paiement mis à jour" });
+                          setOpen(false);
+                          setSelectedPayment(null);
+                        },
+                      }
+                    );
                   }
-                  updatePayment.mutate(
-                    { id: selectedPayment.id, data: values },
-                    {
-                      onSuccess: () => {
-                        toast({ title: "Paiement mis à jour" });
-                        setOpen(false);
-                        setSelectedPayment(null);
-                      },
-                    }
-                  );
                 }}
               />
             </DialogContent>

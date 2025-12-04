@@ -13,6 +13,7 @@ import {
 import { PaymentMethod, PaymentStatus } from "@/types/api";
 
 const schema = z.object({
+  lease_id: z.number().positive("Bail requis"),
   amount: z.number().positive("Montant requis"),
   due_date: z.string().min(1, "Échéance requise"),
   payment_method: z.enum(["stripe", "paypal", "bank_transfer", "cash", "check"]).optional(),
@@ -28,6 +29,7 @@ interface PaymentFormProps {
   onSubmit: (values: FormValues) => void;
   submitLabel?: string;
   loading?: boolean;
+  leases?: { id: number; label: string; amount?: number; charges?: number | null; due_date?: string }[];
 }
 
 export function PaymentForm({
@@ -35,12 +37,14 @@ export function PaymentForm({
   onSubmit,
   submitLabel = "Enregistrer",
   loading,
+  leases = [],
 }: PaymentFormProps) {
   const {
     register,
     handleSubmit,
     formState: { errors },
     setValue,
+    watch,
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -49,8 +53,37 @@ export function PaymentForm({
     },
   });
 
+  const selectedLeaseId = watch("lease_id");
+
+  // Pré-remplir montant/échéance si disponible
+  const selectedLease = leases.find((l) => l.id === selectedLeaseId);
+  if (selectedLease) {
+    if (selectedLease.amount !== undefined) {
+      setValue("amount", selectedLease.amount, { shouldValidate: false, shouldDirty: false });
+    }
+    if (selectedLease.due_date) {
+      setValue("due_date", selectedLease.due_date, { shouldValidate: false, shouldDirty: false });
+    }
+  }
+
   return (
     <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
+      <div>
+        <label className="block text-sm font-medium mb-1">Bail</label>
+        <Select onValueChange={(value) => setValue("lease_id", Number(value))} defaultValue={defaultValues?.lease_id ? String(defaultValues.lease_id) : undefined}>
+          <SelectTrigger>
+            <SelectValue placeholder="Choisir un bail" />
+          </SelectTrigger>
+          <SelectContent>
+            {leases.map((lease) => (
+              <SelectItem key={lease.id} value={String(lease.id)}>
+                {lease.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors.lease_id && <p className="text-xs text-destructive mt-1">{errors.lease_id.message}</p>}
+      </div>
       <div>
         <label className="block text-sm font-medium mb-1">Montant</label>
         <Input type="number" step="0.01" {...register("amount", { valueAsNumber: true })} />
