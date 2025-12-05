@@ -12,6 +12,7 @@ from app.utils.dependencies import get_current_landlord
 from app.utils.email import send_email
 from pydantic import BaseModel, Field
 from app.config import settings
+from app.utils.stripe_helper import create_checkout_session
 
 router = APIRouter(prefix="/api/reminders", tags=["Reminders"])
 
@@ -75,7 +76,7 @@ def get_lease_expiration_reminders(
 ):
     """Retourne les baux classés par date de fin (proche → lointain) pour préparer les relances."""
     today = date.today()
-    pay_url = (settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080").rstrip("/") + "/payments"
+    app_base = (settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080").rstrip("/")
     query = (
         db.query(Lease, Property, Tenant, User)
         .join(Property, Lease.property_id == Property.id)
@@ -92,6 +93,19 @@ def get_lease_expiration_reminders(
     reminders = []
     for lease, prop, tenant, user in query.all():
         days_left = (lease.end_date - today).days if lease.end_date else None
+        pay_url = f"{app_base}/payments"
+        # On génère un lien Checkout Stripe si possible (montant = loyer mensuel)
+        checkout_url = create_checkout_session(
+            amount=lease.rent_amount or 0,
+            currency="xaf",
+            description=f"Loyer bail #{lease.id}",
+            success_url=f"{app_base}/payments?status=success&lease_id={lease.id}",
+            cancel_url=f"{app_base}/payments?status=cancel&lease_id={lease.id}",
+            metadata={"lease_id": lease.id},
+        )
+        if checkout_url:
+            pay_url = checkout_url
+
         reminders.append(
             {
                 "lease_id": lease.id,

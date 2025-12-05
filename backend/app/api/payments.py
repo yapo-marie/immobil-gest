@@ -13,6 +13,7 @@ from app.models.notification import Notification, NotificationType
 from app.config import settings
 import stripe
 from app.utils.email import send_email
+from app.utils.stripe_helper import create_checkout_session
 from app.utils.receipt import generate_payment_receipt, generate_due_notice
 from app.models.tenant import Tenant
 
@@ -196,6 +197,43 @@ def create_or_get_intent(
     return response
 
 
+@router.post("/{payment_id}/checkout-session")
+def create_checkout_link(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_landlord),
+):
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=400, detail="Stripe non configuré")
+
+    payment = (
+        db.query(Payment)
+        .join(Lease)
+        .join(Property)
+        .filter(Payment.id == payment_id, Property.owner_id == current_user.id)
+        .first()
+    )
+    if not payment:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+
+    app_base = settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080"
+    success_url = f"{app_base.rstrip('/')}/payments?status=success&pid={payment.id}"
+    cancel_url = f"{app_base.rstrip('/')}/payments?status=cancel&pid={payment.id}"
+
+    checkout_url = create_checkout_session(
+        amount=payment.amount,
+        currency="xaf",
+        description=f"Loyer bail #{payment.lease_id}",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"payment_id": payment.id, "lease_id": payment.lease_id},
+    )
+    if not checkout_url:
+        raise HTTPException(status_code=502, detail="Impossible de créer la session Stripe")
+
+    return {"url": checkout_url}
+
+
 @router.post("/{payment_id}/notice")
 def send_due_notice(
     payment_id: int,
@@ -232,9 +270,22 @@ def send_due_notice(
         tenant_name,
         property_title,
     )
+    app_base = settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080"
+    success_url = f"{app_base.rstrip('/')}/payments?status=success&pid={payment.id}"
+    cancel_url = f"{app_base.rstrip('/')}/payments?status=cancel&pid={payment.id}"
+    checkout_url = create_checkout_session(
+        amount=payment.amount,
+        currency="xaf",
+        description=f"Loyer bail #{payment.lease_id}",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"payment_id": payment.id, "lease_id": payment.lease_id},
+    )
+    pay_line = f"\nPayer en ligne (Stripe) : {checkout_url}" if checkout_url else ""
+
     send_email(
         tenant_email,
         "Avis d'échéance de loyer",
-        f"Bonjour {tenant_name},\nVotre loyer de {payment.amount:.0f} F CFA pour {property_title} est dû le {payment.due_date}.\nAvis: /{notice_path}",
+        f"Bonjour {tenant_name},\nVotre loyer de {payment.amount:.0f} F CFA pour {property_title} est dû le {payment.due_date}.{pay_line}\nAvis: /{notice_path}",
     )
     return {"notice_url": f"/{notice_path}"}

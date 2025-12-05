@@ -1,11 +1,14 @@
 # LOCATUS – Gestion locative (FastAPI + React)
 
-Application full-stack pour bailleurs : biens, locataires, baux, paiements (Stripe test), notifications. Backend FastAPI (PostgreSQL) et frontend React/Vite (TypeScript, React Query, shadcn UI).
+Application full-stack pour bailleurs : biens, locataires, baux, relances paiements/fin de bail, paiements Stripe, notifications. Backend FastAPI (PostgreSQL) et frontend React/Vite (TypeScript, React Query, shadcn UI).
 
 ## Aperçu fonctionnel
 - Authentification JWT (bailleur/admin).
 - CRUD biens, locataires, baux.
-- Paiements (Stripe test) et reçus PDF simples.
+- Paiements (Stripe) : création PaymentIntent, reçus PDF.
+- Relances :
+  - Page `/relances` : baux triés par date de fin + paiements à relancer (bouton mail + paiement Stripe).
+  - Relances auto des échéances le 1er du mois (SMTP ou SendGrid si présent).
 - Notifications basiques.
 - Upload d’images (local ou Cloudinary).
 
@@ -47,12 +50,23 @@ STRIPE_SECRET_KEY=sk_test_...
 STRIPE_PUBLISHABLE_KEY=pk_test_...
 APP_URL=http://localhost:8080
 TIMEZONE=UTC
+# SMTP (recommandé)
+FROM_EMAIL=...
+FROM_NAME=LOCATUS
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=...
+SMTP_PASSWORD=...
+SMTP_USE_TLS=true
+# SendGrid optionnel en fallback
+# SENDGRID_API_KEY=...
 ```
 
 ## Démarrage & URLs
 - API : http://localhost:8000
 - Swagger : http://localhost:8000/docs
 - Front : http://localhost:8080
+ - Relances : http://localhost:8080/relances
 
 ## Comptes de test
 Créer un bailleur via Swagger ou curl :
@@ -69,6 +83,7 @@ Login web : `bailleur@locatus.com` / `motdepasse123`
 - Locataires : `GET/POST /api/tenants`, `PUT /api/tenants/{id}`
 - Baux : `GET/POST /api/leases`, `PUT /api/leases/{id}`
 - Paiements Stripe : `POST /api/payments/{id}/intent`, `POST /api/payments/{id}/checkout-session`
+- Relances : `GET /api/reminders/leases`, `GET /api/reminders` (paiements), `POST /api/reminders/leases/{id}/send`, `POST /api/payments/{id}/notice`
 - Alias sans préfixe `/api` (mêmes opérations, même base) : `/properties`, `/tenants`, `/leases`
 
 ## Dépannage

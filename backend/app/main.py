@@ -19,6 +19,7 @@ from app.models.user import User
 from app.models.reminder_history import ReminderHistory
 from sqlalchemy import and_
 from app.utils.dependencies import get_current_user
+from app.utils.stripe_helper import create_checkout_session
 
 app = FastAPI(
     title="LOCATUS API",
@@ -188,7 +189,17 @@ def send_reminder_email(to_email: str, first_name: str, property_title: str, pay
     if not to_email:
         return
     subject = f"Relance de paiement - {property_title}"
-    pay_link = f"{settings.APP_URL.rstrip('/')}/payments" if settings.APP_URL else "http://localhost:8080/payments"
+    app_base = settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080"
+    success_url = f"{app_base.rstrip('/')}/payments?status=success&pid={payment.id}"
+    cancel_url = f"{app_base.rstrip('/')}/payments?status=cancel&pid={payment.id}"
+    pay_link = create_checkout_session(
+        amount=payment.amount,
+        currency="xaf",
+        description=f"Loyer bail #{payment.lease_id}",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"payment_id": payment.id, "lease_id": payment.lease_id},
+    ) or f"{app_base.rstrip('/')}/payments"
     content = f"""
 Bonjour {first_name},
 
