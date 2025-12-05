@@ -28,8 +28,13 @@ class Payment(Base):
     amount = Column(Float, nullable=False)
     due_date = Column(Date, nullable=False)
     payment_date = Column(Date)
-    status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.PENDING)
-    payment_method = Column(SQLEnum(PaymentMethod))
+    status = Column(
+        SQLEnum(PaymentStatus, values_callable=lambda x: [e.value for e in x], name="paymentstatus"),
+        default=PaymentStatus.PENDING,
+    )
+    payment_method = Column(
+        SQLEnum(PaymentMethod, values_callable=lambda x: [e.value for e in x], name="paymentmethod")
+    )
     transaction_reference = Column(String)
     receipt_url = Column(String)  # PDF receipt URL
     notes = Column(String)

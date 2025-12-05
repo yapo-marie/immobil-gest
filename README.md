@@ -1,92 +1,82 @@
-# LOCATUS - Guide de Démarrage
+# LOCATUS – Gestion locative (FastAPI + React)
 
-## 🚀 Lancement de l'application
+Application full-stack pour bailleurs : biens, locataires, baux, paiements (Stripe test), notifications. Backend FastAPI (PostgreSQL) et frontend React/Vite (TypeScript, React Query, shadcn UI).
 
-### Backend (API)
+## Aperçu fonctionnel
+- Authentification JWT (bailleur/admin).
+- CRUD biens, locataires, baux.
+- Paiements (Stripe test) et reçus PDF simples.
+- Notifications basiques.
+- Upload d’images (local ou Cloudinary).
+
+## Stack
+- Backend : FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, PostgreSQL (port 5433).
+- Frontend : React 18 + Vite, TypeScript, React Query, shadcn/ui, axios.
+- Auth : OAuth2 password flow, JWT access token (stocké localStorage).
+
+## Pré-requis
+- Python 3.11+, Node 18+, PostgreSQL (port par défaut 5433).
+- Ports : API 8000, Front 8080 (proxy `/api` → 8000).
+
+## Installation rapide
 ```bash
+# Backend
 cd backend
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+# lancer l'API
 ./start.sh
+
+# Frontend
+cd ../frontend
+npm install
+npm run dev   # http://localhost:8080
 ```
-Le backend sera accessible sur `http://localhost:8000`
-Documentation API : `http://localhost:8000/docs`
 
-### Frontend
-```bash
-cd frontend
-npm run dev
+## Configuration (.env backend)
+Exemple minimal :
 ```
-Le frontend sera accessible sur `http://localhost:8081`
+DATABASE_URL=postgresql://user:password@localhost:5433/immobilier
+SECRET_KEY=change-me
+ALGORITHM=HS256
+FRONTEND_URL=http://localhost:8080
+CLOUDINARY_CLOUD_NAME=...
+CLOUDINARY_API_KEY=...
+CLOUDINARY_API_SECRET=...
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+APP_URL=http://localhost:8080
+TIMEZONE=UTC
+```
 
-## 🔐 Première Connexion
+## Démarrage & URLs
+- API : http://localhost:8000
+- Swagger : http://localhost:8000/docs
+- Front : http://localhost:8080
 
-### Créer un compte bailleur via l'API
-
-Vous pouvez créer un compte directement via Swagger (`http://localhost:8000/docs`) ou avec curl :
-
+## Comptes de test
+Créer un bailleur via Swagger ou curl :
 ```bash
-curl -X POST "http://localhost:8000/api/auth/register" \
+curl -X POST http://localhost:8000/api/auth/register \
   -H "Content-Type: application/json" \
-  -d '{
-    "email": "bailleur@locatus.com",
-    "password": "motdepasse123",
-    "first_name": "Jean",
-    "last_name": "Dupont",
-    "phone": "0612345678",
-    "role": "landlord"
-  }'
+  -d '{"email":"bailleur@locatus.com","password":"motdepasse123","first_name":"Jean","last_name":"Dupont","phone":"0612345678","role":"landlord"}'
 ```
+Login web : `bailleur@locatus.com` / `motdepasse123`
 
-### Se connecter
+## Routes API clés
+- Auth : `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- Biens : `GET/POST /api/properties`, `PUT /api/properties/{id}`
+- Locataires : `GET/POST /api/tenants`, `PUT /api/tenants/{id}`
+- Baux : `GET/POST /api/leases`, `PUT /api/leases/{id}`
+- Paiements Stripe : `POST /api/payments/{id}/intent`, `POST /api/payments/{id}/checkout-session`
+- Alias sans préfixe `/api` (mêmes opérations, même base) : `/properties`, `/tenants`, `/leases`
 
-1. Allez sur `http://localhost:8081`
-2. Vous serez redirigé vers `/login`
-3. Entrez vos identifiants :
-   - Email : `bailleur@locatus.com`
-   - Mot de passe : `motdepasse123`
+## Dépannage
+- Backend ne démarre pas : vérifier PostgreSQL (`sudo service postgresql start`), port 5433 dans `.env`.
+- Front ne voit pas l’API : backend sur 8000, proxy `/api` dans `vite.config.ts`, variable `FRONTEND_URL`.
+- 401 côté front : reconnectez-vous, le token est en localStorage (`token`).
 
-## 📊 Fonctionnalités disponibles
-
-### Backend (API)
-- ✅ Authentification JWT
-- ✅ Gestion des biens immobiliers (CRUD)
-- ✅ Gestion des locataires (CRUD + suppression)
-- ✅ Gestion des baux (création, résiliation)
-- ✅ Système de paiements
-- ✅ Notifications
-
-### Frontend
-- ✅ Page de connexion
-- ✅ Routes protégées
-- ✅ Menu de navigation en français
-- ✅ Tableau de bord (données mockées pour l'instant)
-- ⏳ Intégration complète avec l'API (en cours)
-
-## 🔧 Configuration
-
-### Base de données
-Le fichier `.env` du backend contient la configuration PostgreSQL.
-Port utilisé : **5433** (PostgreSQL v18)
-
-### Proxy Frontend → Backend
-Le frontend est configuré pour rediriger `/api/*` vers `http://localhost:8000`
-
-## 📝 Prochaines étapes
-
-1. Connecter le Dashboard aux vraies données de l'API
-2. Créer les pages de gestion des biens, locataires, baux
-3. Implémenter le système de paiement avec Stripe
-4. Ajouter les notifications en temps réel
-
-## 🐛 Dépannage
-
-### Le backend ne démarre pas
-- Vérifiez que PostgreSQL est lancé : `sudo service postgresql start`
-- Vérifiez le port dans `.env` (5433 pour PostgreSQL v18)
-
-### Le frontend ne se connecte pas à l'API
-- Vérifiez que le backend tourne sur le port 8000
-- Vérifiez la configuration du proxy dans `vite.config.ts`
-
-### Erreur 401 Unauthorized
-- Vous devez d'abord vous connecter via `/login`
-- Le token JWT est stocké dans `localStorage`
+## Prochaines évolutions possibles
+- Liaison complète Dashboard ↔ API.
+- Paiement PI-SPI ou autre PSP.
+- Notifications temps réel (websockets).

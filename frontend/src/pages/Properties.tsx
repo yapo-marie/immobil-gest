@@ -55,6 +55,7 @@ export default function Properties() {
     tenant_id: 0,
     lease_start_date: new Date().toISOString().slice(0, 10),
   });
+  const isSubmitting = createProperty.isPending || updateProperty.isPending;
 
   const filteredProperties = useMemo(() => {
     return properties.filter((property) => {
@@ -113,7 +114,7 @@ const resetForm = () => {
                 className="space-y-3"
                 onSubmit={async (e) => {
                   e.preventDefault();
-                  if (createProperty.isPending || updateProperty.isPending) return;
+                  if (isSubmitting) return;
                   try {
                     let uploadedUrl: string | undefined;
                     if (form.image_file) {
@@ -306,8 +307,8 @@ const resetForm = () => {
                   />
                 </div>
               </div>
-              <Button type="submit" className="w-full" disabled={createProperty.isPending}>
-                {createProperty.isPending ? "Création..." : "Créer"}
+              <Button type="submit" className="w-full" disabled={isSubmitting} aria-busy={isSubmitting}>
+                {isSubmitting ? "Enregistrement..." : editingId ? "Mettre à jour" : "Créer"}
               </Button>
             </form>
           </DialogContent>

@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 import enum
+from typing import Optional
 
 
 class LeaseStatus(str, enum.Enum):
@@ -24,9 +25,13 @@ class Lease(Base):
     charges = Column(Float, default=0)
     deposit_paid = Column(Float)
     payment_day = Column(Integer, default=1)  # Day of month (1-31)
-    status = Column(SQLEnum(LeaseStatus), default=LeaseStatus.ACTIVE)
+    status = Column(
+        SQLEnum(LeaseStatus, values_callable=lambda x: [e.value for e in x], name="leasestatus"),
+        default=LeaseStatus.ACTIVE,
+    )
     special_conditions = Column(String)
     contract_url = Column(String)  # PDF contract URL
+    next_due_date: Optional[Date] = Column(Date)  # stocke la prochaine échéance pré-calculée
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

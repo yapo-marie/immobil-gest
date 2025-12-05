@@ -11,6 +11,7 @@ from app.models.property import Property
 from app.utils.dependencies import get_current_landlord
 from app.utils.email import send_email
 from pydantic import BaseModel, Field
+from app.config import settings
 
 router = APIRouter(prefix="/api/reminders", tags=["Reminders"])
 
@@ -74,6 +75,7 @@ def get_lease_expiration_reminders(
 ):
     """Retourne les baux classés par date de fin (proche → lointain) pour préparer les relances."""
     today = date.today()
+    pay_url = (settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080").rstrip("/") + "/payments"
     query = (
         db.query(Lease, Property, Tenant, User)
         .join(Property, Lease.property_id == Property.id)
@@ -103,6 +105,8 @@ def get_lease_expiration_reminders(
                 "end_date": lease.end_date,
                 "status": lease.status.value,
                 "days_until_end": days_left,
+                "rent_amount": lease.rent_amount,
+                "pay_url": pay_url,
             }
         )
     return reminders

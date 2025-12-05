@@ -11,11 +11,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useTenants, useCreateTenantWithUser, useUpdateTenant, useDeleteTenant } from "@/hooks/useTenants";
-import { useLeases } from "@/hooks/useLeases";
+import { useLeases, useCreateLease, useDeleteLease } from "@/hooks/useLeases";
 import { useProperties } from "@/hooks/useProperties";
 import { Tenant } from "@/types/api";
 import { useToast } from "@/hooks/use-toast";
-import { useCreateLease } from "@/hooks/useLeases";
 import {
   Select,
   SelectContent,
@@ -69,6 +68,7 @@ const [form, setForm] = useState<TenantFormState>({
   const updateTenant = useUpdateTenant();
   const deleteTenant = useDeleteTenant();
   const createLease = useCreateLease();
+  const deleteLease = useDeleteLease();
   const { toast } = useToast();
 
   const propertyMap = useMemo(() => {
@@ -100,6 +100,16 @@ const [form, setForm] = useState<TenantFormState>({
     leases.forEach((lease) => {
       if (lease.status === "active" && !map.has(lease.tenant_id)) {
         map.set(lease.tenant_id, lease.property_id);
+      }
+    });
+    return map;
+  }, [leases]);
+
+  const activeLeaseDetailByTenant = useMemo(() => {
+    const map = new Map<number, { leaseId: number; propertyId: number }>();
+    leases.forEach((lease) => {
+      if (lease.status === "active" && !map.has(lease.tenant_id)) {
+        map.set(lease.tenant_id, { leaseId: lease.id, propertyId: lease.property_id });
       }
     });
     return map;
@@ -162,6 +172,28 @@ const resetForm = () => {
           id: editTenant.id,
           data: payload,
         });
+        // Gestion des baux (réaffectation / libération)
+        const activeLease = activeLeaseDetailByTenant.get(editTenant.id);
+        const desiredPropertyId = form.property_id;
+
+        // Si on change de bien ou on libère, supprimer le bail actif
+        if (activeLease && (!desiredPropertyId || desiredPropertyId !== activeLease.propertyId)) {
+          await deleteLease.mutateAsync(activeLease.leaseId);
+        }
+
+        // Créer un nouveau bail si un bien est choisi et aucun bail actif ne reste
+        if (desiredPropertyId) {
+          const property = propertyMap.get(desiredPropertyId);
+          await createLease.mutateAsync({
+            property_id: desiredPropertyId,
+            tenant_id: editTenant.id,
+            start_date: form.start_date || new Date().toISOString().slice(0, 10),
+            rent_amount: property?.rent_amount ?? 0,
+            charges: property?.charges ?? 0,
+            payment_day: 5,
+            deposit_paid: property?.deposit ?? property?.rent_amount ?? 0,
+          });
+        }
         toast({ title: "Locataire mis à jour" });
       } else {
         const tenantCreated = await createTenant.mutateAsync({
@@ -387,23 +419,24 @@ const resetForm = () => {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setEditTenant(tenant);
-                          setForm({
-                            email: tenant.user?.email ?? "",
-                            password: "",
-                            first_name: tenant.user?.first_name ?? "",
-                            last_name: tenant.user?.last_name ?? "",
-                            phone: tenant.user?.phone ?? "",
-                            employment_info: tenant.employment_info ?? "",
-                            notes: tenant.notes ?? "",
-                            property_id: 0,
-                            start_date: new Date().toISOString().slice(0, 10),
-                          });
-                          setOpen(true);
-                        }}
-                      >
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setEditTenant(tenant);
+                        const activePropertyId = activeLeaseByTenant.get(tenant.id) || 0;
+                        setForm({
+                          email: tenant.user?.email ?? "",
+                          password: "",
+                          first_name: tenant.user?.first_name ?? "",
+                          last_name: tenant.user?.last_name ?? "",
+                          phone: tenant.user?.phone ?? "",
+                          employment_info: tenant.employment_info ?? "",
+                          notes: tenant.notes ?? "",
+                          property_id: activePropertyId,
+                          start_date: new Date().toISOString().slice(0, 10),
+                        });
+                        setOpen(true);
+                      }}
+                    >
                         <Pencil size={14} className="mr-2" /> Éditer
                       </DropdownMenuItem>
                       <DropdownMenuItem

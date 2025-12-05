@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     # Frontend
     FRONTEND_URL: str = "http://localhost:5173"
+    APP_URL: str = "http://localhost:8080"
+    TIMEZONE: str = "UTC"
     
     # Environment
     ENVIRONMENT: str = "development"

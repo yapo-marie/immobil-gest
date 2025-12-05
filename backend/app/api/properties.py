@@ -7,7 +7,8 @@ from app.models.user import User
 from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyResponse
 from app.utils.dependencies import get_current_landlord, get_current_user
 
-router = APIRouter(prefix="/api/properties", tags=["Properties"])
+# Prefix sans /api pour exposer les routes sur /api/properties et /properties
+router = APIRouter(prefix="/properties", tags=["Properties"])
 
 @router.get("/", response_model=List[PropertyResponse])
 def get_properties(

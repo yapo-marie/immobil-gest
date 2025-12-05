@@ -9,7 +9,8 @@ from app.models.user import User
 from app.schemas.lease import LeaseCreate, LeaseUpdate, LeaseResponse
 from app.utils.dependencies import get_current_landlord
 
-router = APIRouter(prefix="/api/leases", tags=["Leases"])
+# Prefix sans /api pour exposer /leases et /api/leases
+router = APIRouter(prefix="/leases", tags=["Leases"])
 
 @router.get("/", response_model=List[LeaseResponse])
 def get_leases(

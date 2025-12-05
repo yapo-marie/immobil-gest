@@ -26,7 +26,10 @@ class Property(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String, nullable=False)
     description = Column(String)
-    property_type = Column(SQLEnum(PropertyType), nullable=False)
+    property_type = Column(
+        SQLEnum(PropertyType, values_callable=lambda x: [e.value for e in x], name="propertytype"),
+        nullable=False,
+    )
     address = Column(String, nullable=False)
     city = Column(String, nullable=False)
     postal_code = Column(String)
@@ -38,7 +41,10 @@ class Property(Base):
     charges = Column(Float, default=0)
     deposit = Column(Float)
     application_fee = Column(Float, default=0)
-    status = Column(SQLEnum(PropertyStatus), default=PropertyStatus.AVAILABLE)
+    status = Column(
+        SQLEnum(PropertyStatus, values_callable=lambda x: [e.value for e in x], name="propertystatus"),
+        default=PropertyStatus.AVAILABLE,
+    )
     available_date = Column(DateTime(timezone=True))
     images = Column(JSON)  # Array of image URLs
     amenities = Column(JSON)  # Array of amenities

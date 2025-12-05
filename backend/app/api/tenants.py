@@ -3,13 +3,14 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app.models.tenant import Tenant
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.lease import Lease, LeaseStatus
 from app.schemas.tenant import TenantCreate, TenantUpdate, TenantDetailResponse, TenantCreateWithUser
 from app.utils.dependencies import get_current_landlord
 from app.utils.security import get_password_hash
 
-router = APIRouter(prefix="/api/tenants", tags=["Tenants"])
+# Prefix sans /api pour pouvoir exposer les routes aussi bien sur /api/tenants que /tenants
+router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
 @router.get("/", response_model=List[TenantDetailResponse])
 def get_tenants(
@@ -160,10 +161,13 @@ def delete_tenant(
             status_code=400, 
             detail="Cannot delete tenant with active leases. Terminate lease first."
         )
-    
-    # Delete the tenant profile
-    # Note: The associated User account remains, only the tenant profile is deleted
-    db.delete(tenant)
+
+    # Delete both tenant profile and its user account (to free the email)
+    # Keep landlords/admins safe by only removing tenant-role users.
+    if tenant.user and tenant.user.role == UserRole.TENANT:
+        db.delete(tenant.user)
+    else:
+        db.delete(tenant)
     db.commit()
     
-    return {"message": "Tenant profile deleted successfully"}
+    return {"message": "Tenant profile and user deleted successfully"}

@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
-import { useReminders, LeaseReminder } from "@/hooks/useReminders";
+import { useReminders, LeaseReminder, usePaymentReminders, PaymentReminder } from "@/hooks/useReminders";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Mail, Calendar, Clock, AlertTriangle, RefreshCcw } from "lucide-react";
+import { Mail, Calendar, Clock, AlertTriangle, RefreshCcw, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleDateString("fr-FR") : "—");
 
@@ -21,6 +24,8 @@ const applyTemplate = (template: string, reminder: LeaseReminder) => {
     start_date: formatDate(reminder.start_date),
     days_until_end:
       reminder.days_until_end !== null ? reminder.days_until_end.toString() : "",
+    rent_amount: reminder.rent_amount !== undefined ? reminder.rent_amount.toLocaleString("fr-FR") : "",
+    pay_url: reminder.pay_url ?? "/payments",
   };
 
   return Object.entries(replacements).reduce((acc, [key, value]) => {
@@ -28,8 +33,75 @@ const applyTemplate = (template: string, reminder: LeaseReminder) => {
   }, template);
 };
 
+const stripePromise = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string)
+  : null;
+const hasStripe = Boolean(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+
+function StripePayForm({
+  clientSecret,
+  amount,
+  onSuccess,
+  submitting,
+  setSubmitting,
+}: {
+  clientSecret: string;
+  amount?: number;
+  onSuccess: () => void;
+  submitting: boolean;
+  setSubmitting: (value: boolean) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const { toast } = useToast();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setSubmitting(true);
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: "if_required",
+    });
+    if (error) {
+      toast({
+        title: "Paiement refusé",
+        description: error.message ?? "Le paiement n'a pas abouti",
+        variant: "destructive",
+      });
+      setSubmitting(false);
+      return;
+    }
+    if (paymentIntent?.status === "succeeded" || paymentIntent?.status === "processing") {
+      toast({ title: "Paiement confirmé" });
+      onSuccess();
+    } else {
+      toast({ title: "Paiement en attente", description: "Confirmation en cours." });
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="space-y-4" onSubmit={handleSubmit}>
+      <div className="p-3 rounded-md border border-muted">
+        <PaymentElement />
+      </div>
+      {amount !== undefined && (
+        <p className="text-sm text-muted-foreground">
+          Montant : <span className="font-semibold">{amount.toLocaleString("fr-FR")} F CFA</span>
+        </p>
+      )}
+      <Button type="submit" className="w-full" disabled={submitting}>
+        {submitting ? "Paiement..." : "Payer"}
+      </Button>
+    </form>
+  );
+}
+
 export default function Relances() {
   const { data: reminders = [], isLoading, isError, refetch } = useReminders();
+  const { data: paymentReminders = [], isLoading: paymentsLoading, isError: paymentsError, refetch: refetchPaymentReminders } =
+    usePaymentReminders();
   const sortedReminders = useMemo(() => {
     return [...reminders].sort((a, b) => {
       const aDate = a.end_date ? new Date(a.end_date).getTime() : Infinity;
@@ -37,9 +109,17 @@ export default function Relances() {
       return aDate - bDate;
     });
   }, [reminders]);
+  const sortedPaymentReminders = useMemo(() => {
+    return [...paymentReminders].sort((a, b) => {
+      const aDate = new Date(a.due_date).getTime();
+      const bDate = new Date(b.due_date).getTime();
+      return aDate - bDate;
+    });
+  }, [paymentReminders]);
 
   const { toast } = useToast();
   const [sendingId, setSendingId] = useState<number | null>(null);
+  const [paymentSendingId, setPaymentSendingId] = useState<number | null>(null);
   const [subjectTemplate, setSubjectTemplate] = useState("Fin de bail - {{property_title}}");
   const [htmlTemplate, setHtmlTemplate] = useState<string>(
     `<!DOCTYPE html>
@@ -84,6 +164,10 @@ export default function Relances() {
                 <td align="right" style="border-bottom: 1px solid #e6eef8; font-weight: 600;">{{end_date}}</td>
               </tr>
               <tr>
+                <td style="border-bottom: 1px solid #e6eef8; color: #666;">Loyer mensuel</td>
+                <td align="right" style="border-bottom: 1px solid #e6eef8; font-weight: 600;">{{rent_amount}} F CFA</td>
+              </tr>
+              <tr>
                 <td style="color: #666;">Temps restant</td>
                 <td align="right" style="font-weight: 600;">{{days_until_end}} jour(s)</td>
               </tr>
@@ -93,7 +177,7 @@ export default function Relances() {
             Merci de nous confirmer si vous souhaitez renouveler le bail ou organiser votre sortie du logement. Nous restons disponibles pour planifier un rendez-vous d’état des lieux.
           </p>
           <div style="text-align: center; margin-top: 24px;">
-            <a href="#" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Contact propriétaire</a>
+            <a href="{{pay_url}}" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Payer maintenant</a>
           </div>
         </td>
       </tr>
@@ -113,6 +197,11 @@ export default function Relances() {
   const previewSubject = previewReminder
     ? applyTemplate(subjectTemplate, previewReminder)
     : subjectTemplate;
+
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [stripeModalOpen, setStripeModalOpen] = useState(false);
+  const [stripeSubmitting, setStripeSubmitting] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentReminder | null>(null);
 
   const sendReminder = async (reminder: LeaseReminder) => {
     const subject = applyTemplate(subjectTemplate, reminder);
@@ -141,14 +230,72 @@ export default function Relances() {
     }
   };
 
+  const sendPaymentReminder = async (reminder: PaymentReminder) => {
+    try {
+      setPaymentSendingId(reminder.payment_id);
+      await api.post(`/payments/${reminder.payment_id}/notice`);
+      toast({
+        title: "Relance paiement envoyée",
+        description: `Email envoyé à ${reminder.tenant_email}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Erreur",
+        description: err.response?.data?.detail || "Impossible d'envoyer la relance paiement",
+        variant: "destructive",
+      });
+    } finally {
+      setPaymentSendingId(null);
+    }
+  };
+
+  const openStripePayment = async (reminder: PaymentReminder) => {
+    if (!hasStripe || !stripePromise) {
+      toast({
+        title: "Stripe non configuré",
+        description: "Ajoutez VITE_STRIPE_PUBLISHABLE_KEY pour le paiement en ligne.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      setSelectedPayment(reminder);
+      setStripeSubmitting(false);
+      const res = await api.post(`/payments/${reminder.payment_id}/intent`);
+      setStripeClientSecret(res.data.client_secret ?? null);
+      setStripeModalOpen(true);
+    } catch (err: any) {
+      toast({
+        title: "Paiement impossible",
+        description: err.response?.data?.detail || "Stripe n'a pas pu créer l'intention de paiement",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleStripeSuccess = () => {
+    setStripeSubmitting(false);
+    setStripeModalOpen(false);
+    setSelectedPayment(null);
+    setStripeClientSecret(null);
+    refetchPaymentReminders();
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="page-header mb-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="page-title">Relances de fin de bail</h1>
-          <p className="page-subtitle">Classées du plus proche au plus lointain, envoi via SendGrid</p>
+          <h1 className="page-title">Relances</h1>
+          <p className="page-subtitle">Baux (expiration) et paiements (échéance), du plus proche au plus lointain</p>
         </div>
-        <Button variant="outline" onClick={() => refetch()} className="gap-2">
+        <Button
+          variant="outline"
+          onClick={() => {
+            refetch();
+            refetchPaymentReminders();
+          }}
+          className="gap-2"
+        >
           <RefreshCcw size={16} />
           Rafraîchir
         </Button>
@@ -160,7 +307,7 @@ export default function Relances() {
             <h3 className="font-semibold text-foreground">Composer le message</h3>
             <p className="text-sm text-muted-foreground">
               Placeholders disponibles : {"{{tenant_name}}"}, {"{{property_title}}"}, {"{{property_city}}"},
-              {"{{end_date}}"}, {"{{start_date}}"}, {"{{days_until_end}}"}.
+              {"{{end_date}}"}, {"{{start_date}}"}, {"{{days_until_end}}"}, {"{{rent_amount}}"}, {"{{pay_url}}"}.
             </p>
           </div>
           <div className="space-y-3">
@@ -195,6 +342,96 @@ export default function Relances() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-foreground text-lg">Paiements à relancer (Stripe)</h2>
+            <p className="text-sm text-muted-foreground">
+              Triés du plus urgent au moins urgent. Envoi d&apos;email + bouton de paiement Stripe.
+            </p>
+          </div>
+        </div>
+
+        {paymentsLoading && <p className="text-muted-foreground">Chargement des paiements...</p>}
+        {paymentsError && (
+          <p className="text-destructive">
+            Impossible de charger les paiements à relancer.{" "}
+            <button className="underline" onClick={() => refetchPaymentReminders()}>
+              Réessayer
+            </button>
+          </p>
+        )}
+
+        {!paymentsLoading && !paymentsError && sortedPaymentReminders.length === 0 && (
+          <Card>
+            <CardContent className="p-6 text-center text-muted-foreground">
+              Aucun paiement à relancer pour le moment.
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {sortedPaymentReminders.map((reminder) => {
+            const isLate = reminder.status === "late";
+            const label =
+              reminder.days_until_due < 0
+                ? `En retard de ${Math.abs(reminder.days_until_due)} jour(s)`
+                : `Échéance dans ${reminder.days_until_due} jour(s)`;
+            return (
+              <Card key={reminder.payment_id} className="hover:shadow-card-hover transition-all duration-300">
+                <CardContent className="p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <h3 className="font-semibold text-foreground">{reminder.property_title}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {reminder.tenant_name} — {reminder.tenant_email}
+                      </p>
+                    </div>
+                    <span className={isLate ? "badge-destructive" : "badge-warning"}>
+                      {isLate ? "En retard" : "À venir"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={14} />
+                      <span>Échéance {formatDate(reminder.due_date)}</span>
+                    </div>
+                    <span className="font-semibold text-foreground">
+                      {reminder.amount.toLocaleString("fr-FR")} F CFA
+                    </span>
+                  </div>
+                  <p className={`text-sm ${isLate ? "text-destructive" : "text-muted-foreground"}`}>{label}</p>
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    <Button
+                      variant="secondary"
+                      className="gap-2"
+                      onClick={() => sendPaymentReminder(reminder)}
+                      disabled={paymentSendingId === reminder.payment_id}
+                    >
+                      <Mail size={16} />
+                      {paymentSendingId === reminder.payment_id ? "Envoi..." : "Relancer par mail"}
+                    </Button>
+                    <Button
+                      className="gap-2"
+                      onClick={() => openStripePayment(reminder)}
+                      disabled={paymentSendingId === reminder.payment_id}
+                    >
+                      <CreditCard size={16} />
+                      Payer (Stripe)
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="font-semibold text-foreground text-lg">Fin de bail à surveiller</h2>
+        <p className="text-sm text-muted-foreground">Triées par date de fin (du plus proche au plus lointain).</p>
+      </div>
 
       {isLoading && <p className="text-muted-foreground">Chargement des baux...</p>}
       {isError && (
@@ -266,6 +503,52 @@ export default function Relances() {
           );
         })}
       </div>
+
+      <Dialog
+        open={stripeModalOpen}
+        onOpenChange={(open) => {
+          setStripeModalOpen(open);
+          if (!open) {
+            setStripeClientSecret(null);
+            setSelectedPayment(null);
+            setStripeSubmitting(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Paiement Stripe</DialogTitle>
+          </DialogHeader>
+          {selectedPayment && (
+            <div className="text-sm text-muted-foreground mb-2 space-y-1">
+              <p>
+                {selectedPayment.property_title} — {selectedPayment.property_city}
+              </p>
+              <p>
+                Échéance {formatDate(selectedPayment.due_date)} ·{" "}
+                <span className="font-semibold text-foreground">
+                  {selectedPayment.amount.toLocaleString("fr-FR")} F CFA
+                </span>
+              </p>
+            </div>
+          )}
+          {stripeClientSecret && stripePromise ? (
+            <Elements options={{ clientSecret: stripeClientSecret }} stripe={stripePromise}>
+              <StripePayForm
+                clientSecret={stripeClientSecret}
+                amount={selectedPayment?.amount}
+                submitting={stripeSubmitting}
+                setSubmitting={setStripeSubmitting}
+                onSuccess={handleStripeSuccess}
+              />
+            </Elements>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Impossible de charger Stripe. Vérifiez la clé publique.
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
