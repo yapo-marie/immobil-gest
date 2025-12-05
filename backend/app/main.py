@@ -190,8 +190,8 @@ def send_reminder_email(to_email: str, first_name: str, property_title: str, pay
         return
     subject = f"Relance de paiement - {property_title}"
     app_base = settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080"
-    success_url = f"{app_base.rstrip('/')}/payments?status=success&pid={payment.id}"
-    cancel_url = f"{app_base.rstrip('/')}/payments?status=cancel&pid={payment.id}"
+    success_url = f"{app_base.rstrip('/')}/payment-success?pid={payment.id}"
+    cancel_url = f"{app_base.rstrip('/')}/payment-cancel?pid={payment.id}"
     pay_link = create_checkout_session(
         amount=payment.amount,
         currency="xaf",

@@ -17,6 +17,7 @@ import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Relances from "./pages/Relances";
+import PaymentStatus from "./pages/PaymentStatus";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/payment-success" element={<PaymentStatus />} />
+            <Route path="/payment-cancel" element={<PaymentStatus />} />
             <Route
               element={
                 <ProtectedRoute>

@@ -94,14 +94,27 @@ def get_lease_expiration_reminders(
     for lease, prop, tenant, user in query.all():
         days_left = (lease.end_date - today).days if lease.end_date else None
         pay_url = f"{app_base}/payments"
-        # On génère un lien Checkout Stripe si possible (montant = loyer mensuel)
+
+        # Trouver un paiement en attente/retard pour ce bail afin de lier la session Stripe
+        payment = (
+            db.query(Payment)
+            .filter(
+                Payment.lease_id == lease.id,
+                Payment.status.in_([PaymentStatus.PENDING, PaymentStatus.LATE, PaymentStatus.PARTIAL]),
+            )
+            .order_by(Payment.due_date.asc())
+            .first()
+        )
+        payment_id = payment.id if payment else None
+
+        # Générer un lien Checkout Stripe (montant = loyer ou montant du paiement)
         checkout_url = create_checkout_session(
-            amount=lease.rent_amount or 0,
+            amount=(payment.amount if payment else lease.rent_amount) or 0,
             currency="xaf",
             description=f"Loyer bail #{lease.id}",
-            success_url=f"{app_base}/payments?status=success&lease_id={lease.id}",
-            cancel_url=f"{app_base}/payments?status=cancel&lease_id={lease.id}",
-            metadata={"lease_id": lease.id},
+            success_url=f"{app_base}/payment-success?lease_id={lease.id}&pid={payment_id or ''}",
+            cancel_url=f"{app_base}/payment-cancel?lease_id={lease.id}&pid={payment_id or ''}",
+            metadata={"lease_id": lease.id, "payment_id": payment_id} if payment_id else {"lease_id": lease.id},
         )
         if checkout_url:
             pay_url = checkout_url
