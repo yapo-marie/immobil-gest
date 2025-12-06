@@ -323,6 +323,40 @@ class PaymentConfirmRequest(BaseModel):
     lease_id: int | None = None
 
 
+def _send_receipt_to_tenant(db: Session, payment: Payment) -> None:
+    """Génère la quittance PDF et l'envoie au locataire par email."""
+    lease = payment.lease
+    tenant = lease.tenant if lease else None
+    user = tenant.user if tenant else None
+    prop = lease.property if lease else None
+
+    tenant_name = ""
+    tenant_email = ""
+    if user:
+        tenant_name = f"{user.first_name} {user.last_name}"
+        tenant_email = user.email or ""
+
+    if not tenant_email:
+        return
+
+    receipt_path = generate_payment_receipt(
+        payment.id,
+        payment.amount,
+        tenant_name,
+        prop.title if prop else "",
+    )
+    payment.receipt_url = f"/{receipt_path}"
+    db.commit()
+    db.refresh(payment)
+
+    send_email(
+        tenant_email,
+        "Votre reçu de paiement",
+        f"Bonjour {tenant_name},\nVotre paiement #{payment.id} a été enregistré.\nReçu : {payment.receipt_url}",
+        html_content=f"<p>Bonjour {tenant_name},</p><p>Votre paiement #{payment.id} pour <strong>{prop.title if prop else ''}</strong> a été enregistré.</p><p><a href='{payment.receipt_url}'>Télécharger votre reçu</a></p>",
+    )
+
+
 @router.post("/confirm")
 def confirm_payment_from_success(
     payload: PaymentConfirmRequest,
@@ -354,6 +388,8 @@ def confirm_payment_from_success(
     lease_id = payload.lease_id or metadata.get("lease_id") or session_meta.get("lease_id")
 
     payment = None
+    updated = False
+    created_new = False
     if payment_id:
         payment = (
             db.query(Payment)
@@ -396,8 +432,8 @@ def confirm_payment_from_success(
         db.commit()
         db.refresh(payment)
         updated = True
+        created_new = True
 
-    updated = False
     if payment.status != PaymentStatus.PAID:
         payment.status = PaymentStatus.PAID
         payment.payment_method = PaymentMethod.STRIPE
@@ -406,6 +442,14 @@ def confirm_payment_from_success(
         updated = True
         db.commit()
         db.refresh(payment)
+
+    # Générer et envoyer la quittance uniquement lorsqu'on a réellement validé/créé le paiement
+    if updated or created_new:
+        try:
+            _send_receipt_to_tenant(db, payment)
+        except Exception as exc:
+            # on loggue mais on ne bloque pas la réponse
+            print(f"[payments.confirm] envoi reçu locataire échoué: {exc}")
 
     return {
         "payment_id": payment.id,
