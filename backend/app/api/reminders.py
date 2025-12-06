@@ -112,7 +112,7 @@ def get_lease_expiration_reminders(
             amount=(payment.amount if payment else lease.rent_amount) or 0,
             currency="xaf",
             description=f"Loyer bail #{lease.id}",
-            success_url=f"{app_base}/payment-success?lease_id={lease.id}&pid={payment_id or ''}",
+            success_url=f"{app_base}/payment-success?lease_id={lease.id}&pid={payment_id or ''}&cs_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{app_base}/payment-cancel?lease_id={lease.id}&pid={payment_id or ''}",
             metadata={"lease_id": lease.id, "payment_id": payment_id} if payment_id else {"lease_id": lease.id},
         )

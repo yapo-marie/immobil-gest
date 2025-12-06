@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, datetime
 from app.database import get_db
-from app.models.payment import Payment, PaymentStatus
+from app.models.payment import Payment, PaymentStatus, PaymentMethod
 from app.models.lease import Lease
 from app.models.property import Property
 from app.models.user import User
@@ -13,9 +13,10 @@ from app.models.notification import Notification, NotificationType
 from app.config import settings
 import stripe
 from app.utils.email import send_email
-from app.utils.stripe_helper import create_checkout_session
+from app.utils.stripe_helper import create_checkout_session, to_stripe_amount, ZERO_DECIMAL_CURRENCIES
 from app.utils.receipt import generate_payment_receipt, generate_due_notice
 from app.models.tenant import Tenant
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/payments", tags=["Payments"])
 
@@ -48,6 +49,24 @@ def list_payments(
     return query.order_by(Payment.due_date.desc()).offset(skip).limit(limit).all()
 
 
+@router.get("/{payment_id}", response_model=PaymentResponse)
+def get_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_landlord),
+):
+    payment = (
+        db.query(Payment)
+        .join(Lease)
+        .join(Property)
+        .filter(Payment.id == payment_id, Property.owner_id == current_user.id)
+        .first()
+    )
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    return payment
+
+
 @router.post("/", response_model=PaymentResponse)
 def create_payment(
     payment: PaymentCreate,
@@ -70,17 +89,21 @@ def create_payment(
     client_secret = None
     # Si Stripe est configuré, préparer un PaymentIntent (optionnel, front peut l'utiliser)
     if settings.STRIPE_SECRET_KEY:
-        intent = stripe.PaymentIntent.create(
-            amount=int(payment.amount * 100),  # en cents
-            currency="xaf",
-            metadata={"payment_id": new_payment.id},
-            description=f"Loyer bail #{payment.lease_id}",
-            automatic_payment_methods={"enabled": True},
-        )
-        new_payment.transaction_reference = intent.id
-        client_secret = intent.client_secret
-        db.commit()
-        db.refresh(new_payment)
+        stripe_amount = to_stripe_amount(payment.amount, "xaf")
+        if stripe_amount is None:
+            print(f"[stripe] montant PI invalide pour paiement {new_payment.id} ({payment.amount} XAF)")
+        else:
+            intent = stripe.PaymentIntent.create(
+                amount=stripe_amount,
+                currency="xaf",
+                metadata={"payment_id": new_payment.id},
+                description=f"Loyer bail #{payment.lease_id}",
+                automatic_payment_methods={"enabled": True},
+            )
+            new_payment.transaction_reference = intent.id
+            client_secret = intent.client_secret
+            db.commit()
+            db.refresh(new_payment)
 
     # Inject client_secret pour la réponse (pas stocké en base)
     result = PaymentResponse.model_validate(new_payment)
@@ -180,8 +203,11 @@ def create_or_get_intent(
             client_secret = None
 
     if not client_secret:
+        stripe_amount = to_stripe_amount(payment.amount, "xaf")
+        if stripe_amount is None:
+            raise HTTPException(status_code=400, detail="Montant Stripe invalide pour ce paiement")
         intent = stripe.PaymentIntent.create(
-            amount=int(payment.amount * 100),
+            amount=stripe_amount,
             currency="xaf",
             metadata={"payment_id": payment.id},
             description=f"Loyer bail #{payment.lease_id}",
@@ -217,7 +243,7 @@ def create_checkout_link(
         raise HTTPException(status_code=404, detail="Paiement introuvable")
 
     app_base = settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080"
-    success_url = f"{app_base.rstrip('/')}/payment-success?pid={payment.id}"
+    success_url = f"{app_base.rstrip('/')}/payment-success?pid={payment.id}&cs_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{app_base.rstrip('/')}/payment-cancel?pid={payment.id}"
 
     checkout_url = create_checkout_session(
@@ -271,7 +297,7 @@ def send_due_notice(
         property_title,
     )
     app_base = settings.APP_URL or settings.FRONTEND_URL or "http://localhost:8080"
-    success_url = f"{app_base.rstrip('/')}/payments?status=success&pid={payment.id}"
+    success_url = f"{app_base.rstrip('/')}/payments?status=success&pid={payment.id}&cs_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{app_base.rstrip('/')}/payments?status=cancel&pid={payment.id}"
     checkout_url = create_checkout_session(
         amount=payment.amount,
@@ -289,3 +315,100 @@ def send_due_notice(
         f"Bonjour {tenant_name},\nVotre loyer de {payment.amount:.0f} F CFA pour {property_title} est dû le {payment.due_date}.{pay_line}\nAvis: /{notice_path}",
     )
     return {"notice_url": f"/{notice_path}"}
+
+
+class PaymentConfirmRequest(BaseModel):
+    checkout_session_id: str
+    payment_id: int | None = None
+    lease_id: int | None = None
+
+
+@router.post("/confirm")
+def confirm_payment_from_success(
+    payload: PaymentConfirmRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint appelé par la page de succès pour marquer le paiement comme réglé
+    en vérifiant la session Stripe (sécurisé par checkout_session_id).
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=400, detail="Stripe non configuré")
+    if not payload.checkout_session_id:
+        raise HTTPException(status_code=400, detail="checkout_session_id requis")
+
+    try:
+        session = stripe.checkout.Session.retrieve(payload.checkout_session_id, expand=["payment_intent"])
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Session Stripe introuvable : {exc}")
+
+    pi = getattr(session, "payment_intent", None)
+    pi_status = getattr(pi, "status", None)
+    session_paid = getattr(session, "payment_status", None) == "paid" or getattr(session, "status", None) == "complete"
+    if not session_paid and pi_status not in ("succeeded", "processing", "requires_capture"):
+        raise HTTPException(status_code=400, detail="Paiement non confirmé par Stripe")
+
+    metadata = getattr(pi, "metadata", {}) or {}
+    session_meta = getattr(session, "metadata", {}) or {}
+    payment_id = payload.payment_id or metadata.get("payment_id") or session_meta.get("payment_id") or session.client_reference_id
+    lease_id = payload.lease_id or metadata.get("lease_id") or session_meta.get("lease_id")
+
+    payment = None
+    if payment_id:
+        payment = (
+            db.query(Payment)
+            .filter(Payment.id == int(payment_id))
+            .first()
+        )
+    if not payment and lease_id:
+        payment = (
+            db.query(Payment)
+            .filter(
+                Payment.lease_id == int(lease_id),
+                Payment.status.in_([PaymentStatus.PENDING, PaymentStatus.LATE, PaymentStatus.PARTIAL]),
+            )
+            .order_by(Payment.due_date.asc())
+            .first()
+        )
+    if not payment:
+        # Créer un paiement si absent (ex: session générée sans payment_id)
+        if not lease_id:
+            raise HTTPException(status_code=404, detail="Paiement introuvable")
+        lease = db.query(Lease).filter(Lease.id == int(lease_id)).first()
+        if not lease:
+            raise HTTPException(status_code=404, detail="Paiement introuvable")
+
+        total = getattr(session, "amount_total", None) or 0
+        currency = (getattr(session, "currency", None) or "xaf").lower()
+        divisor = 1 if currency in ZERO_DECIMAL_CURRENCIES else 100
+        amount = float(total) / divisor
+
+        payment = Payment(
+            lease_id=lease.id,
+            amount=amount,
+            due_date=date.today(),
+            status=PaymentStatus.PAID,
+            payment_method=PaymentMethod.STRIPE,
+            payment_date=date.today(),
+            transaction_reference=getattr(pi, "id", None) or session.payment_intent,
+        )
+        db.add(payment)
+        db.commit()
+        db.refresh(payment)
+        updated = True
+
+    updated = False
+    if payment.status != PaymentStatus.PAID:
+        payment.status = PaymentStatus.PAID
+        payment.payment_method = PaymentMethod.STRIPE
+        payment.payment_date = date.today()
+        payment.transaction_reference = getattr(pi, "id", None) or session.payment_intent
+        updated = True
+        db.commit()
+        db.refresh(payment)
+
+    return {
+        "payment_id": payment.id,
+        "status": payment.status.value,
+        "updated": updated,
+    }

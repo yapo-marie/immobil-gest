@@ -9,6 +9,7 @@ from app.models.property import Property
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.utils.email import send_email
+from app.utils.receipt import generate_payment_receipt
 from datetime import date
 
 router = APIRouter(prefix="/api/stripe", tags=["Stripe"])
@@ -35,18 +36,27 @@ def _mark_payment_paid(db, payment: Payment, pi_id: str):
     if tenant and tenant.user:
         tenant_name = f"{tenant.user.first_name} {tenant.user.last_name}"
 
+    message = (
+        f"Paiement #{payment.id} confirmé pour {prop.title if prop else 'un bien'} "
+        f"({payment.amount:.0f} F CFA) par {tenant_name or 'locataire'}."
+    )
+    receipt_path = generate_payment_receipt(
+        payment.id,
+        payment.amount,
+        tenant_name,
+        prop.title if prop else "",
+    )
+
+    # Mail propriétaire
     if owner and owner.email:
-        message = (
-            f"Paiement #{payment.id} confirmé pour {prop.title if prop else 'un bien'} "
-            f"({payment.amount:.0f} F CFA) par {tenant_name or 'locataire'}."
-        )
-        send_email(
+        success, reason = send_email(
             owner.email,
             "Paiement locataire confirmé",
-            message,
-            html_content=f"<p>{message}</p>",
+            f"{message}\nReçu : /{receipt_path}",
+            html_content=f"<p>{message}</p><p><a href='/{receipt_path}'>Télécharger le reçu</a></p>",
         )
-
+        if not success:
+            print(f"[stripe_webhook] email propriétaire non envoyé: {reason}")
         notif = Notification(
             user_id=owner.id,
             type=NotificationType.PAYMENT_CONFIRMATION,
@@ -54,6 +64,18 @@ def _mark_payment_paid(db, payment: Payment, pi_id: str):
             message=message,
         )
         db.add(notif)
+
+    # Mail locataire (si email dispo)
+    if tenant and tenant.user and tenant.user.email:
+        tenant_email = tenant.user.email
+        success, reason = send_email(
+            tenant_email,
+            "Votre reçu de paiement",
+            f"Bonjour {tenant_name},\nVotre paiement #{payment.id} pour {prop.title if prop else ''} est confirmé.\nReçu : /{receipt_path}",
+            html_content=f"<p>Bonjour {tenant_name},</p><p>Votre paiement #{payment.id} pour <strong>{prop.title if prop else ''}</strong> est confirmé.</p><p><a href='/{receipt_path}'>Télécharger votre reçu</a></p>",
+        )
+        if not success:
+            print(f"[stripe_webhook] email locataire non envoyé ({tenant_email}): {reason}")
 
 
 @router.post("/webhook")

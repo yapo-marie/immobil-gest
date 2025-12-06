@@ -71,7 +71,7 @@ export default function Leases() {
   const [form, setForm] = useState({
     property_id: 0,
     tenant_id: 0,
-    start_date: "",
+    start_date: new Date().toISOString().slice(0, 10),
     end_date: "",
     rent_amount: 0,
     charges: 0,
@@ -109,9 +109,9 @@ export default function Leases() {
       return {
         ...prev,
         property_id: propertyId,
-        rent_amount: property ? property.rent_amount : prev.rent_amount,
-        charges: property ? property.charges ?? 0 : prev.charges,
-        deposit_paid: property ? property.rent_amount : prev.deposit_paid,
+        rent_amount: property?.rent ?? prev.rent_amount,
+        charges: property?.charges ?? 0,
+        deposit_paid: property?.rent ?? prev.deposit_paid,
       };
     });
   };
@@ -120,7 +120,7 @@ export default function Leases() {
     setForm({
       property_id: 0,
       tenant_id: 0,
-      start_date: "",
+      start_date: new Date().toISOString().slice(0, 10),
       end_date: "",
       rent_amount: 0,
       charges: 0,
@@ -175,7 +175,7 @@ export default function Leases() {
     } catch (err: any) {
       toast({
         title: "Erreur",
-        description: err.response?.data?.detail || "Impossible d'enregistrer le bail",
+        description: (err.response?.data?.detail && String(err.response.data.detail)) || "Impossible d'enregistrer le bail",
         variant: "destructive",
       });
     }
@@ -281,11 +281,20 @@ export default function Leases() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-medium">Date début</label>
-                  <Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} required />
+                  <Input
+                    type="date"
+                    value={form.start_date || ""}
+                    onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+                    required
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Date fin</label>
-                  <Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
+                  <Input
+                    type="date"
+                    value={form.end_date || ""}
+                    onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
